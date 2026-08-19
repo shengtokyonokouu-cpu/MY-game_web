@@ -105,6 +105,7 @@ function artStyle(game: Game): CSSProperties {
 }
 
 function wikipediaLanguage(value: string) {
+  if (/[\u3040-\u30ff]/.test(value)) return "ja";
   return /[\u3400-\u9fff]/.test(value) ? "zh" : "en";
 }
 
@@ -114,7 +115,7 @@ async function searchWikipedia(query: string, limit = 8, signal?: AbortSignal): 
   endpoint.search = new URLSearchParams({
     action: "query",
     generator: "search",
-    gsrsearch: `${query} ${language === "zh" ? "电子游戏" : "video game"}`,
+    gsrsearch: `${query} ${language === "zh" ? "电子游戏" : language === "ja" ? "コンピュータゲーム" : "video game"}`,
     gsrnamespace: "0",
     gsrlimit: String(limit),
     prop: "pageimages|extracts|info",
@@ -335,8 +336,16 @@ function fetchGameCover(title: string) {
   const pending = coverRequests.get(title);
   if (pending) return pending;
 
-  const request = searchWikipedia(`"${title}"`, 1)
-    .then((items) => items[0]?.thumbnail?.source ?? null)
+  const language = wikipediaLanguage(title);
+  const summaryUrl = new URL(`https://${language}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replaceAll(" ", "_"))}`);
+  summaryUrl.searchParams.set("redirect", "true");
+  const request = fetch(summaryUrl, { headers: { Accept: "application/json" } })
+    .then(async (response) => {
+      if (!response.ok) return null;
+      const page = await response.json() as { thumbnail?: { source?: string } };
+      return page.thumbnail?.source ?? null;
+    })
+    .then((image) => image ?? searchWikipedia(`"${title}"`, 1).then((items) => items[0]?.thumbnail?.source ?? null))
     .catch(() => null)
     .then((url) => {
       coverCache.set(title, url);
@@ -380,12 +389,14 @@ function GameArtwork({ game, compact = false }: { game: Game; compact?: boolean 
 }
 
 function DiscoveredArtwork({ game }: { game: DiscoveredGame }) {
+  const fetchedCover = useGameCover(game.articleTitle);
+  const cover = game.image ?? fetchedCover;
   return (
-    <div className={`discovered-artwork ${game.image ? "has-cover" : ""}`} aria-hidden="true">
-      {game.image ? (
+    <div className={`discovered-artwork ${cover ? "has-cover" : ""}`} aria-hidden="true">
+      {cover ? (
         // Wikimedia thumbnails are supplied by multiple public hosts.
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={game.image} alt="" loading="lazy" referrerPolicy="no-referrer" />
+        <img src={cover} alt="" loading="lazy" referrerPolicy="no-referrer" />
       ) : (
         <>
           <div className="discovered-orbit" />
