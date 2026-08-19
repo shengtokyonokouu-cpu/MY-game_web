@@ -20,10 +20,13 @@ test("server-renders the Release Signal application", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>发售信号｜个人新游雷达<\/title>/);
+  assert.match(html, /<html[^>]+data-theme="light"/);
   assert.match(html, /下一段值得/);
   assert.match(html, /近期信号|发售雷达/);
   assert.match(html, /光与影：33号远征队/);
   assert.match(html, /情报变更记录/);
+  assert.match(html, /动态检索更多游戏/);
+  assert.match(html, /切换为深色主题/);
   assert.match(html, /property="og:image"[^>]+content="https?:\/\/[^"]+\/og\.png"/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });

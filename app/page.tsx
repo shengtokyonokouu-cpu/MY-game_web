@@ -16,8 +16,21 @@ type View = "radar" | "calendar" | "mine" | "sources";
 type ShelfStatus = "interested" | "playing" | "finished" | "paused";
 type StatusFilter = "all" | GameStatus;
 type SortKey = "recommend" | "date-asc" | "date-desc" | "score";
+type Theme = "light" | "dark";
+type OnlineState = "idle" | "loading" | "done" | "error";
+
+type OnlineGame = {
+  pageid: number;
+  title: string;
+  extract?: string;
+  fullurl: string;
+  thumbnail?: { source: string; width: number; height: number };
+};
 
 const STORAGE_KEY = "release-signal-personal-v1";
+const THEME_KEY = "release-signal-theme-v1";
+const coverCache = new Map<string, string | null>();
+const coverRequests = new Map<string, Promise<string | null>>();
 const scoreKeys: Array<{ key: keyof ScoreSet; label: string; short: string }> = [
   { key: "gameplay", label: "玩法", short: "玩" },
   { key: "story", label: "剧情", short: "剧" },
@@ -64,9 +77,77 @@ function artStyle(game: Game): CSSProperties {
   } as CSSProperties;
 }
 
+function wikipediaLanguage(value: string) {
+  return /[\u3400-\u9fff]/.test(value) ? "zh" : "en";
+}
+
+async function searchWikipedia(query: string, limit = 8, signal?: AbortSignal): Promise<OnlineGame[]> {
+  const language = wikipediaLanguage(query);
+  const endpoint = new URL(`https://${language}.wikipedia.org/w/api.php`);
+  endpoint.search = new URLSearchParams({
+    action: "query",
+    generator: "search",
+    gsrsearch: `${query} ${language === "zh" ? "电子游戏" : "video game"}`,
+    gsrnamespace: "0",
+    gsrlimit: String(limit),
+    prop: "pageimages|extracts|info",
+    inprop: "url",
+    exintro: "1",
+    explaintext: "1",
+    exsentences: "2",
+    piprop: "thumbnail",
+    pithumbsize: "640",
+    format: "json",
+    formatversion: "2",
+    origin: "*",
+  }).toString();
+
+  const response = await fetch(endpoint, { signal, headers: { Accept: "application/json" } });
+  if (!response.ok) throw new Error(`Wikipedia search failed: ${response.status}`);
+  const data = await response.json() as { query?: { pages?: OnlineGame[] } };
+  return (data.query?.pages ?? []).filter((item) => item.fullurl && item.title);
+}
+
+function fetchGameCover(title: string) {
+  if (coverCache.has(title)) return Promise.resolve(coverCache.get(title) ?? null);
+  const pending = coverRequests.get(title);
+  if (pending) return pending;
+
+  const request = searchWikipedia(`\"${title}\"`, 1)
+    .then((items) => items[0]?.thumbnail?.source ?? null)
+    .catch(() => null)
+    .then((url) => {
+      coverCache.set(title, url);
+      coverRequests.delete(title);
+      return url;
+    });
+  coverRequests.set(title, request);
+  return request;
+}
+
+function useGameCover(title: string) {
+  const [cover, setCover] = useState<string | null>(() => coverCache.get(title) ?? null);
+
+  useEffect(() => {
+    let active = true;
+    void fetchGameCover(title).then((url) => {
+      if (active) setCover(url);
+    });
+    return () => { active = false; };
+  }, [title]);
+
+  return cover;
+}
+
 function GameArtwork({ game, compact = false }: { game: Game; compact?: boolean }) {
+  const cover = useGameCover(game.originalTitle);
   return (
-    <div className={`game-artwork ${compact ? "compact" : ""}`} style={artStyle(game)} aria-hidden="true">
+    <div className={`game-artwork ${compact ? "compact" : ""} ${cover ? "has-cover" : ""}`} style={artStyle(game)} aria-hidden="true">
+      {cover && (
+        // Dynamic public thumbnails come from different Wikimedia hosts, so a fixed Next image allowlist is not viable.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className="game-cover" src={cover} alt="" loading={compact ? "lazy" : "eager"} referrerPolicy="no-referrer" />
+      )}
       <div className="art-grid" />
       <div className="art-orbit" />
       <span className="art-country">{game.country}</span>
@@ -104,6 +185,9 @@ export default function Home() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [hydrated, setHydrated] = useState(false);
   const [toast, setToast] = useState("");
+  const [theme, setTheme] = useState<Theme>("light");
+  const [onlineResults, setOnlineResults] = useState<OnlineGame[]>([]);
+  const [onlineState, setOnlineState] = useState<OnlineState>("idle");
 
   useEffect(() => {
     try {
@@ -132,6 +216,46 @@ export default function Home() {
     if (!hydrated) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ wishlist, shelf, ratings, notes }));
   }, [hydrated, wishlist, shelf, ratings, notes]);
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem(THEME_KEY);
+    if (savedTheme === "dark") setTheme("dark");
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const term = query.trim();
+    if (term.length < 2) {
+      setOnlineResults([]);
+      setOnlineState("idle");
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setOnlineState("loading");
+      void searchWikipedia(term, 8, controller.signal)
+        .then((results) => {
+          setOnlineResults(results);
+          setOnlineState("done");
+        })
+        .catch((error: unknown) => {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          setOnlineResults([]);
+          setOnlineState("error");
+        });
+    }, 420);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query]);
 
   useEffect(() => {
     if (!selected) return;
@@ -206,6 +330,47 @@ export default function Home() {
     }));
   }
 
+  function renderOnlineSearch() {
+    const term = query.trim();
+    return (
+      <section className="online-discovery" aria-live="polite">
+        <header>
+          <div>
+            <p className="eyebrow">LIVE PUBLIC INDEX</p>
+            <h3>动态检索更多游戏</h3>
+          </div>
+          <span>WIKIPEDIA / WIKIMEDIA · 实时查询</span>
+        </header>
+        {term.length < 2 ? (
+          <div className="online-prompt"><b>⌕</b><p>输入至少 2 个字符，可在已核验目录之外继续检索游戏、系列与开发团队。</p></div>
+        ) : onlineState === "loading" ? (
+          <div className="online-loading"><i /><i /><i /><span>正在检索公共游戏索引…</span></div>
+        ) : onlineState === "error" ? (
+          <div className="online-prompt error"><b>!</b><p>公共索引暂时不可用。已核验目录仍可正常浏览，请稍后重试。</p></div>
+        ) : onlineResults.length ? (
+          <div className="online-grid">
+            {onlineResults.map((item) => (
+              <a className="online-card" href={item.fullurl} target="_blank" rel="noreferrer" key={item.pageid}>
+                <div className="online-icon">
+                  {item.thumbnail ? (
+                    // Wikimedia thumbnail hosts vary by result.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={item.thumbnail.source} alt="" loading="lazy" referrerPolicy="no-referrer" />
+                  ) : <span>{item.title.slice(0, 2).toUpperCase()}</span>}
+                </div>
+                <div><span>公共索引 · 待官方核验</span><h4>{item.title}</h4><p>{item.extract || "打开公共资料页查看作品信息。"}</p></div>
+                <b>↗</b>
+              </a>
+            ))}
+          </div>
+        ) : (
+          <div className="online-prompt"><b>0</b><p>没有找到“{term}”的公共索引结果，可以尝试英文名、日文名或系列名。</p></div>
+        )}
+        <footer>动态结果用于发现，不自动进入真实性台账；日期、平台和厂商信息仍需通过官方来源核验后收录。</footer>
+      </section>
+    );
+  }
+
   function renderRadar() {
     return (
       <>
@@ -213,7 +378,7 @@ export default function Home() {
           <div className="hero-copy">
             <p className="eyebrow"><span /> 个人游戏情报台 · {SNAPSHOT_DATE.replaceAll("-", ".")}</p>
             <h1>下一段值得<br />投入的<span>世界。</span></h1>
-            <p className="hero-lede">从官方发布、开发者访谈到仍未定档的计划，把每一次心动放在证据旁边。</p>
+            <p className="hero-lede">从官方发布、开发者访谈到仍未定档的计划；核验目录之外，还能实时检索更广阔的公共游戏索引。</p>
             <div className="hero-actions">
               <button className="primary-action" onClick={() => document.querySelector("#catalog")?.scrollIntoView({ behavior: "smooth" })}>浏览 {games.length} 部档案 <span>↓</span></button>
               <button className="text-action" onClick={() => openView("sources")}>真实性规则 ↗</button>
@@ -316,7 +481,8 @@ export default function Home() {
                 </article>
               ))}
             </div>
-          ) : <div className="empty-state"><span>NO SIGNAL</span><h3>没有符合这些条件的档案</h3><p>试试放宽平台、地区或状态筛选。</p></div>}
+          ) : <div className="empty-state"><span>NO VERIFIED SIGNAL</span><h3>已核验目录没有匹配项</h3><p>继续查看下方动态结果，或尝试英文名与系列名。</p></div>}
+          {renderOnlineSearch()}
         </section>
 
         <section className="intel-section">
@@ -391,7 +557,7 @@ export default function Home() {
         <div className="truth-principles">
           <article><span>01</span><h2>官宣优先</h2><p>发售日与平台优先引用开发商、发行商或平台方。转载只用于定位原始出处，不反向替代官方。</p></article>
           <article><span>02</span><h2>新信息覆盖旧信息</h2><p>同一游戏发生延期或提前时，使用发布时间更晚的官方信息，同时保留变更记录。</p></article>
-          <article><span>03</span><h2>未定档就是未定档</h2><p>没有官方日期就显示 TBA。媒体爆料必须独立标为“未证实”，当前快照没有达到收录门槛的传闻。</p></article>
+          <article><span>03</span><h2>发现与事实分层</h2><p>动态检索来自 Wikipedia / Wikimedia，只用于发现并明确标记“待核验”；没有官方日期就显示 TBA，不把公共索引写进真实性台账。</p></article>
           <article><span>04</span><h2>评分属于你</h2><p>四维数字是可编辑的个人参考，不冒充媒体均分或客观结论；待发售作品明确标为期待值。</p></article>
         </div>
         <div className="source-ledger">
@@ -401,7 +567,7 @@ export default function Home() {
             {games.map((game) => <div className="ledger-row" key={game.id}><span><b>{game.title}</b><small>{game.developer}</small></span><span>{game.source.evidence}</span><span><em className={`status-${game.status}`}>{statusLabels[game.status]}</em></span><span>{game.source.checkedAt}</span><span><a href={game.source.url} target="_blank" rel="noreferrer">{game.source.label} ↗</a></span></div>)}
           </div>
         </div>
-        <div className="update-guide"><div><p className="eyebrow">MAINTENANCE</p><h2>后续更新怎么做</h2></div><p>所有游戏都集中在一个结构化数据文件中。新增作品只需补充名称、状态、平台、四维初始值和官方来源；日期验证测试会阻止缺少出处或把未定档写成确定日期的记录进入发布版本。</p></div>
+        <div className="update-guide"><div><p className="eyebrow">MAINTENANCE</p><h2>后续更新怎么做</h2></div><p>在线检索无需等待本站更新；通过官方来源核验后，作品再进入结构化目录，补充状态、平台、四维初始值与证据。日期验证测试会阻止缺少出处或把未定档写成确定日期的记录进入发布版本。</p></div>
       </section>
     );
   }
@@ -413,7 +579,7 @@ export default function Home() {
         <nav aria-label="主要导航">
           {([['radar', '雷达'], ['calendar', '日历'], ['mine', '我的'], ['sources', '来源']] as Array<[View, string]>).map(([value, label]) => <button className={view === value ? "active" : ""} type="button" key={value} onClick={() => openView(value)}>{label}</button>)}
         </nav>
-        <div className="topbar-actions"><label className="top-search"><span className="visually-hidden">搜索游戏</span><input value={query} onChange={(event) => { setQuery(event.target.value); if (view !== "radar") setView("radar"); }} placeholder="搜索新世界" /><b>⌕</b></label><button className="shelf-shortcut" type="button" onClick={() => openView("mine")}><span>♡</span><b>{wishlist.length}</b></button></div>
+        <div className="topbar-actions"><label className="top-search"><span className="visually-hidden">搜索游戏</span><input value={query} onChange={(event) => { setQuery(event.target.value); if (view !== "radar") setView("radar"); }} placeholder="动态搜索游戏" /><b>⌕</b></label><button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")} aria-label={theme === "light" ? "切换为深色主题" : "切换为浅色主题"} title={theme === "light" ? "切换为深色主题" : "切换为浅色主题"}><span aria-hidden="true">{theme === "light" ? "☾" : "☀"}</span></button><button className="shelf-shortcut" type="button" onClick={() => openView("mine")}><span>♡</span><b>{wishlist.length}</b></button></div>
       </header>
 
       {view === "radar" && renderRadar()}

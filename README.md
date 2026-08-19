@@ -8,6 +8,9 @@
 
 - 已发售、待发售、开发中严格分层，不给未定档作品猜日期。
 - 按平台、地区、状态、日期、四维均分与关键词筛选。
+- 默认浅色主题，可一键切换深色主题并在本机保存偏好。
+- 通过 Wikipedia / Wikimedia 公共索引动态检索目录外作品，并显示可用的游戏缩略图。
+- 在线发现结果与官方已核验目录严格分层，不把公共索引自动写成事实。
 - 连续发售日历与日期变更情报流。
 - 每部作品都有开发商、发行商、国家/地区、平台、类型、适配理由和注意项。
 - 每条日期与平台信息附官方出处、核验日期与证据说明。
@@ -62,7 +65,7 @@ npm run lint
 npm run build
 ```
 
-项目也保留 `.openai/hosting.json`，可直接由 Sites 保存版本和发布。Cloudflare Pages 的高级 Worker 输出可通过 `npm run pages:build` 生成在 `dist/pages`，随后连接 GitHub 仓库或使用 Wrangler 发布。
+Cloudflare Pages 的高级 Worker 输出可通过 `npm run pages:build` 生成在 `dist/pages`，随后连接 GitHub 仓库或使用 Wrangler 发布到免费的 `*.pages.dev` 二级域名。项目也保留 `.openai/hosting.json`，用于兼容 Sites 构建与版本归档。
 
 ## 数据与隐私边界
 
@@ -70,3 +73,4 @@ npm run build
 - 四维分数是个人参考，不是媒体均分，也不声称客观。
 - 愿望单、评分和笔记默认仅在当前浏览器保存，没有账号与跨设备同步。
 - 外部链接打开官方页面；本站不代理商店交易、不收集付款信息。
+- 动态检索会从浏览器直接请求 Wikipedia API；本站不保存检索关键词，缩略图版权与许可以对应 Wikimedia 页面为准。
