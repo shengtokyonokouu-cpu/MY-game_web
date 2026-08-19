@@ -26,6 +26,10 @@ test("server-renders the Release Signal application", async () => {
   assert.match(html, /光与影：33号远征队/);
   assert.match(html, /情报变更记录/);
   assert.match(html, /动态检索更多游戏/);
+  assert.match(html, /ADAPTIVE RELEASE CATALOG/);
+  assert.match(html, /aria-label="游戏目录分页"/);
+  assert.match(html, /aria-label="界面缩放"/);
+  assert.match(html, /正在自动更新/);
   assert.match(html, /切换为深色主题/);
   assert.match(html, /property="og:image"[^>]+content="https?:\/\/[^"]+\/og-light\.png"/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);

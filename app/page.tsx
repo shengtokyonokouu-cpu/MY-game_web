@@ -18,6 +18,8 @@ type StatusFilter = "all" | GameStatus;
 type SortKey = "recommend" | "date-asc" | "date-desc" | "score";
 type Theme = "light" | "dark";
 type OnlineState = "idle" | "loading" | "done" | "error";
+type FeedState = "loading" | "ready" | "error";
+type UiScale = 0.9 | 1 | 1.1 | 1.2;
 
 type OnlineGame = {
   pageid: number;
@@ -27,8 +29,33 @@ type OnlineGame = {
   thumbnail?: { source: string; width: number; height: number };
 };
 
+type DiscoveredGame = {
+  id: string;
+  title: string;
+  releaseDate: string | null;
+  dateLabel: string;
+  status: "released" | "upcoming";
+  platforms: string[];
+  platformText: string;
+  genres: string[];
+  developer: string;
+  publisher: string;
+  articleTitle: string;
+  sourceUrl: string;
+  image?: string;
+  summary?: string;
+};
+
+type CatalogItem =
+  | { kind: "verified"; game: Game }
+  | { kind: "discovered"; game: DiscoveredGame };
+
 const STORAGE_KEY = "release-signal-personal-v1";
 const THEME_KEY = "release-signal-theme-v1";
+const SCALE_KEY = "release-signal-ui-scale-v1";
+const FEED_CACHE_KEY = `release-signal-annual-${new Date().getFullYear()}-next-v2`;
+const PAGE_SIZE = 12;
+const UI_SCALES: UiScale[] = [0.9, 1, 1.1, 1.2];
 const coverCache = new Map<string, string | null>();
 const coverRequests = new Map<string, Promise<string | null>>();
 const scoreKeys: Array<{ key: keyof ScoreSet; label: string; short: string }> = [
@@ -62,7 +89,7 @@ function daysFromNow(date: string | null) {
   return Math.ceil((release - now) / 86400000);
 }
 
-function countdownLabel(game: Game) {
+function countdownLabel(game: Pick<Game, "status" | "releaseDate">) {
   const days = daysFromNow(game.releaseDate);
   if (game.status === "development" || days === null) return "TBA";
   if (days < 0) return "OUT NOW";
@@ -97,6 +124,7 @@ async function searchWikipedia(query: string, limit = 8, signal?: AbortSignal): 
     exsentences: "2",
     piprop: "thumbnail",
     pithumbsize: "640",
+    pilimit: String(limit),
     format: "json",
     formatversion: "2",
     origin: "*",
@@ -106,6 +134,200 @@ async function searchWikipedia(query: string, limit = 8, signal?: AbortSignal): 
   if (!response.ok) throw new Error(`Wikipedia search failed: ${response.status}`);
   const data = await response.json() as { query?: { pages?: OnlineGame[] } };
   return (data.query?.pages ?? []).filter((item) => item.fullurl && item.title);
+}
+
+function cleanCellText(value: string | null | undefined) {
+  return (value ?? "")
+    .replace(/\[[^\]]*]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function slugify(value: string) {
+  return value.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 72) || "game";
+}
+
+function parseReleaseDate(value: string, year: number) {
+  const match = value.match(/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})\b/i);
+  if (!match) return null;
+  const months = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+  const month = months.indexOf(match[1].toLowerCase()) + 1;
+  const day = Number(match[2]);
+  if (!month || day < 1 || day > 31) return null;
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function todayLocal() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+function expandTable(table: HTMLTableElement) {
+  const rows = Array.from(table.rows);
+  const carries = new Map<number, { cell: HTMLTableCellElement; remaining: number }>();
+  return rows.map((row) => {
+    const existingColumns = new Set(carries.keys());
+    const expanded: HTMLTableCellElement[] = [];
+    let column = 0;
+    for (const cell of Array.from(row.cells)) {
+      while (carries.has(column)) {
+        expanded[column] = carries.get(column)!.cell;
+        column += 1;
+      }
+      const colSpan = Math.max(1, cell.colSpan || 1);
+      const rowSpan = Math.max(1, cell.rowSpan || 1);
+      for (let offset = 0; offset < colSpan; offset += 1) {
+        expanded[column + offset] = cell;
+        if (rowSpan > 1) carries.set(column + offset, { cell, remaining: rowSpan - 1 });
+      }
+      column += colSpan;
+    }
+    const maxColumn = Math.max(expanded.length, ...Array.from(carries.keys(), (key) => key + 1));
+    for (let index = 0; index < maxColumn; index += 1) {
+      if (!expanded[index] && carries.has(index)) expanded[index] = carries.get(index)!.cell;
+    }
+    for (const index of existingColumns) {
+      const carry = carries.get(index);
+      if (!carry) continue;
+      if (carry.remaining <= 1) carries.delete(index);
+      else carry.remaining -= 1;
+    }
+    return expanded;
+  });
+}
+
+function wikiPageUrl(title: string) {
+  return `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replaceAll(" ", "_"))}`;
+}
+
+function parseAnnualReleaseFeed(html: string, year: number): DiscoveredGame[] {
+  const documentNode = new DOMParser().parseFromString(html, "text/html");
+  const today = todayLocal();
+  const found: DiscoveredGame[] = [];
+
+  for (const table of Array.from(documentNode.querySelectorAll<HTMLTableElement>("table.wikitable"))) {
+    const rows = expandTable(table);
+    const headerIndex = rows.findIndex((cells) => {
+      const headers = cells.map((cell) => cleanCellText(cell.textContent).toLowerCase());
+      return headers.includes("title") && (headers.includes("release date") || headers.includes("approximate date"));
+    });
+    if (headerIndex < 0) continue;
+    const headers = rows[headerIndex].map((cell) => cleanCellText(cell.textContent).toLowerCase());
+    const indexOf = (...names: string[]) => headers.findIndex((header) => names.some((name) => header === name || header.startsWith(name)));
+    const titleIndex = indexOf("title");
+    const dateIndex = indexOf("release date", "approximate date");
+    const platformIndex = indexOf("platform");
+    const genreIndex = indexOf("genre", "type");
+    const developerIndex = indexOf("developer");
+    const publisherIndex = indexOf("publisher");
+
+    for (const cells of rows.slice(headerIndex + 1)) {
+      const titleCell = cells[titleIndex];
+      const dateCell = cells[dateIndex];
+      if (!titleCell || !dateCell) continue;
+      const title = cleanCellText(titleCell.querySelector("i")?.textContent || titleCell.textContent);
+      const dateText = cleanCellText(dateCell.textContent);
+      if (!title || title.length > 140 || /^title$/i.test(title)) continue;
+      const anchor = titleCell.querySelector<HTMLAnchorElement>('a[rel~="mw:WikiLink"], a[href^="./"]');
+      const articleTitle = cleanCellText(anchor?.getAttribute("title")) || title;
+      const releaseDate = parseReleaseDate(dateText, year);
+      const status: DiscoveredGame["status"] = releaseDate && releaseDate <= today ? "released" : "upcoming";
+      const platformText = cleanCellText(cells[platformIndex]?.textContent) || "平台待核验";
+      const genres = cleanCellText(cells[genreIndex]?.textContent).split(/,|\/|;/).map((item) => item.trim()).filter(Boolean).slice(0, 4);
+      const sourceUrl = articleTitle ? wikiPageUrl(articleTitle) : `https://en.wikipedia.org/wiki/List_of_video_games_released_in_${year}`;
+      found.push({
+        id: `auto-${slugify(title)}-${releaseDate ?? slugify(dateText)}`,
+        title,
+        releaseDate,
+        dateLabel: releaseDate?.replaceAll("-", ".") ?? (dateText || "TBA"),
+        status,
+        platforms: platformText.split(/,|\/|;|\band\b/i).map((item) => item.trim()).filter(Boolean).slice(0, 6),
+        platformText,
+        genres,
+        developer: cleanCellText(cells[developerIndex]?.textContent) || "开发商待核验",
+        publisher: cleanCellText(cells[publisherIndex]?.textContent) || "发行商待核验",
+        articleTitle,
+        sourceUrl,
+      });
+    }
+  }
+
+  const unique = Array.from(new Map(found.map((game) => [`${game.title.toLowerCase()}|${game.releaseDate ?? game.dateLabel}`, game])).values());
+  const released = unique.filter((game) => game.status === "released" && game.releaseDate).sort((a, b) => b.releaseDate!.localeCompare(a.releaseDate!)).slice(0, 96);
+  const datedUpcoming = unique.filter((game) => game.status === "upcoming" && game.releaseDate).sort((a, b) => a.releaseDate!.localeCompare(b.releaseDate!)).slice(0, 144);
+  const undated = unique.filter((game) => !game.releaseDate).slice(0, 48);
+  return [...released, ...datedUpcoming, ...undated];
+}
+
+async function enrichDiscoveredGames(items: DiscoveredGame[], signal?: AbortSignal) {
+  const chunks: DiscoveredGame[][] = [];
+  for (let index = 0; index < items.length; index += 50) chunks.push(items.slice(index, index + 50));
+  const details = new Map<string, { image?: string; summary?: string; fullurl?: string }>();
+
+  await Promise.all(chunks.map(async (chunk) => {
+    const endpoint = new URL("https://en.wikipedia.org/w/api.php");
+    endpoint.search = new URLSearchParams({
+      action: "query",
+      titles: chunk.map((item) => item.articleTitle).join("|"),
+      redirects: "1",
+      prop: "pageimages|extracts|info",
+      inprop: "url",
+      exintro: "1",
+      explaintext: "1",
+      exsentences: "2",
+      piprop: "thumbnail",
+      pithumbsize: "720",
+      pilimit: String(chunk.length),
+      format: "json",
+      formatversion: "2",
+      origin: "*",
+    }).toString();
+    const response = await fetch(endpoint, { signal, headers: { Accept: "application/json" } });
+    if (!response.ok) return;
+    const data = await response.json() as {
+      query?: {
+        normalized?: Array<{ from: string; to: string }>;
+        redirects?: Array<{ from: string; to: string }>;
+        pages?: Array<OnlineGame & { missing?: boolean }>;
+      };
+    };
+    const aliases = new Map(chunk.map((item) => [item.articleTitle, item.articleTitle]));
+    for (const item of data.query?.normalized ?? []) aliases.set(item.from, item.to);
+    for (const item of data.query?.redirects ?? []) aliases.set(item.from, item.to);
+    const pageMap = new Map((data.query?.pages ?? []).map((page) => [page.title, page]));
+    for (const item of chunk) {
+      let target = aliases.get(item.articleTitle) ?? item.articleTitle;
+      target = aliases.get(target) ?? target;
+      const page = pageMap.get(target);
+      if (page && !page.missing) details.set(item.id, { image: page.thumbnail?.source, summary: page.extract, fullurl: page.fullurl });
+    }
+  }));
+
+  return items.map((item) => ({ ...item, ...details.get(item.id), sourceUrl: details.get(item.id)?.fullurl ?? item.sourceUrl }));
+}
+
+async function fetchAnnualReleaseFeed(signal?: AbortSignal) {
+  const currentYear = new Date().getFullYear();
+  const years = [currentYear, currentYear + 1];
+  const responses = await Promise.allSettled(years.map(async (year) => {
+    const url = `https://en.wikipedia.org/api/rest_v1/page/html/List_of_video_games_released_in_${year}`;
+    const response = await fetch(url, { signal, headers: { Accept: "text/html" } });
+    if (!response.ok) throw new Error(`Annual release feed ${year} failed: ${response.status}`);
+    return parseAnnualReleaseFeed(await response.text(), year);
+  }));
+  const parsed = responses.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  if (!parsed.length) throw new Error("Annual release feeds are unavailable");
+  const unique = Array.from(new Map(parsed.map((game) => [`${game.title.toLowerCase()}|${game.releaseDate ?? game.dateLabel}`, game])).values());
+  return enrichDiscoveredGames(unique, signal);
+}
+
+function matchesPlatform(value: string, platform: Platform) {
+  const normalized = value.toLowerCase();
+  if (platform === "NS2") return /\bns2\b|switch 2/.test(normalized);
+  if (platform === "Switch") return /\bns\b|nintendo switch/.test(normalized) && !/switch 2/.test(normalized);
+  if (platform === "PS5") return /\bps5\b|playstation 5/.test(normalized);
+  if (platform === "Xbox") return /\bxsx\b|\bxbx\b|\bxbo\b|xbox/.test(normalized);
+  return /\bwin\b|windows|\bpc\b|\bosx\b|macos|\blin\b|linux/.test(normalized);
 }
 
 function fetchGameCover(title: string) {
@@ -157,6 +379,24 @@ function GameArtwork({ game, compact = false }: { game: Game; compact?: boolean 
   );
 }
 
+function DiscoveredArtwork({ game }: { game: DiscoveredGame }) {
+  return (
+    <div className={`discovered-artwork ${game.image ? "has-cover" : ""}`} aria-hidden="true">
+      {game.image ? (
+        // Wikimedia thumbnails are supplied by multiple public hosts.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={game.image} alt="" loading="lazy" referrerPolicy="no-referrer" />
+      ) : (
+        <>
+          <div className="discovered-orbit" />
+          <strong>{game.title.slice(0, 2).toUpperCase()}</strong>
+        </>
+      )}
+      <span>{game.platforms[0] || "GAME"}</span>
+    </div>
+  );
+}
+
 function ScoreBars({ scores, compact = false }: { scores: ScoreSet; compact?: boolean }) {
   return (
     <div className={`score-bars ${compact ? "compact" : ""}`}>
@@ -186,8 +426,12 @@ export default function Home() {
   const [hydrated, setHydrated] = useState(false);
   const [toast, setToast] = useState("");
   const [theme, setTheme] = useState<Theme>("light");
+  const [uiScale, setUiScale] = useState<UiScale>(1);
   const [onlineResults, setOnlineResults] = useState<OnlineGame[]>([]);
   const [onlineState, setOnlineState] = useState<OnlineState>("idle");
+  const [discoveredGames, setDiscoveredGames] = useState<DiscoveredGame[]>([]);
+  const [feedState, setFeedState] = useState<FeedState>("loading");
+  const [catalogPage, setCatalogPage] = useState(1);
 
   useEffect(() => {
     try {
@@ -227,6 +471,55 @@ export default function Home() {
     document.documentElement.style.colorScheme = theme;
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
+
+  useEffect(() => {
+    const savedScale = Number(localStorage.getItem(SCALE_KEY));
+    if (UI_SCALES.includes(savedScale as UiScale)) queueMicrotask(() => setUiScale(savedScale as UiScale));
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--ui-scale", String(uiScale));
+    document.body.style.zoom = String(uiScale);
+    localStorage.setItem(SCALE_KEY, String(uiScale));
+  }, [uiScale]);
+
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    try {
+      const raw = localStorage.getItem(FEED_CACHE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw) as { items?: DiscoveredGame[] };
+        if (cached.items?.length) queueMicrotask(() => {
+          if (!active) return;
+          setDiscoveredGames(cached.items ?? []);
+          setFeedState("ready");
+        });
+      }
+    } catch {
+      // A stale cache never blocks a fresh public-index refresh.
+    }
+
+    const timer = window.setTimeout(() => {
+      void fetchAnnualReleaseFeed(controller.signal)
+        .then((items) => {
+          if (!active) return;
+          setDiscoveredGames(items);
+          setFeedState("ready");
+          localStorage.setItem(FEED_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), items }));
+        })
+        .catch((error: unknown) => {
+          if (!active || (error instanceof DOMException && error.name === "AbortError")) return;
+          setFeedState((current) => current === "ready" ? current : "error");
+        });
+    }, 80);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, []);
 
   useEffect(() => {
     const term = query.trim();
@@ -274,7 +567,7 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const filtered = useMemo(() => {
+  const verifiedFiltered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return games
       .filter((game) => status === "all" || game.status === status)
@@ -300,9 +593,55 @@ export default function Home() {
       });
   }, [platform, query, region, sort, status]);
 
+  const discoveredFiltered = useMemo(() => {
+    if (region !== "all" || status === "development") return [];
+    const normalized = query.trim().toLowerCase();
+    const curatedTitles = new Set(games.flatMap((game) => [game.title.toLowerCase(), game.originalTitle.toLowerCase()]));
+    return discoveredGames
+      .filter((game) => status === "all" || game.status === status)
+      .filter((game) => platform === "all" || matchesPlatform(game.platformText, platform))
+      .filter((game) => !curatedTitles.has(game.title.toLowerCase()))
+      .filter((game) => {
+        if (!normalized) return true;
+        return [game.title, game.developer, game.publisher, game.platformText, ...game.genres]
+          .some((value) => value.toLowerCase().includes(normalized));
+      });
+  }, [discoveredGames, platform, query, region, status]);
+
+  const catalogItems = useMemo<CatalogItem[]>(() => {
+    const combined: CatalogItem[] = [
+      ...verifiedFiltered.map((game) => ({ kind: "verified" as const, game })),
+      ...discoveredFiltered.map((game) => ({ kind: "discovered" as const, game })),
+    ];
+    if (sort === "date-asc") return combined.sort((a, b) => (a.game.releaseDate ?? "9999").localeCompare(b.game.releaseDate ?? "9999"));
+    if (sort === "date-desc") return combined.sort((a, b) => (b.game.releaseDate ?? "0000").localeCompare(a.game.releaseDate ?? "0000"));
+    return combined;
+  }, [discoveredFiltered, sort, verifiedFiltered]);
+
+  const catalogTotalPages = Math.max(1, Math.ceil(catalogItems.length / PAGE_SIZE));
+  const safeCatalogPage = Math.min(catalogPage, catalogTotalPages);
+  const pagedCatalogItems = catalogItems.slice((safeCatalogPage - 1) * PAGE_SIZE, safeCatalogPage * PAGE_SIZE);
+  const firstCatalogResult = catalogItems.length ? (safeCatalogPage - 1) * PAGE_SIZE + 1 : 0;
+  const lastCatalogResult = Math.min(safeCatalogPage * PAGE_SIZE, catalogItems.length);
+  const discoveredCounts = {
+    all: discoveredGames.length,
+    released: discoveredGames.filter((game) => game.status === "released").length,
+    upcoming: discoveredGames.filter((game) => game.status === "upcoming").length,
+    development: 0,
+  };
+
   const heroGame = games.find((game) => game.id === "onimusha-way-of-the-sword") ?? games[0];
   const personalIds = new Set([...wishlist, ...Object.keys(shelf)]);
   const personalGames = games.filter((game) => personalIds.has(game.id));
+
+  function changePage(page: number) {
+    setCatalogPage(Math.min(Math.max(1, page), catalogTotalPages));
+    document.querySelector("#catalog-results")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function resetCatalogPage() {
+    setCatalogPage(1);
+  }
 
   function announce(message: string) {
     setToast(message);
@@ -373,6 +712,75 @@ export default function Home() {
     );
   }
 
+  function renderCatalogItem(item: CatalogItem) {
+    if (item.kind === "verified") {
+      const game = item.game;
+      return (
+        <article className="catalog-card" key={`verified-${game.id}`}>
+          <button className="card-art-button" type="button" onClick={() => setSelected(game)} aria-label={`打开${game.title}档案`}>
+            <GameArtwork game={game} compact />
+            <span className={`card-status status-${game.status}`}>{statusLabels[game.status]}</span>
+            <span className="card-countdown">{countdownLabel(game)}</span>
+          </button>
+          <div className="catalog-card-copy">
+            <div className="catalog-meta"><span>{game.country}</span><span>{game.signal}</span><span>{game.dateLabel}</span></div>
+            <h3><button type="button" onClick={() => setSelected(game)}>{game.title}</button></h3>
+            <p className="original-title">{game.originalTitle}</p>
+            <p className="card-summary">{game.summary}</p>
+            <div className="tag-row">{game.genres.slice(0, 3).map((genre) => <span key={genre}>{genre}</span>)}</div>
+            <ScoreBars scores={scoreFor(game)} compact />
+            <footer>
+              <div className="platform-list">{game.platforms.map((entry) => <span key={entry}>{platformLabels[entry]}</span>)}</div>
+              <button className={wishlist.includes(game.id) ? "wish-button active" : "wish-button"} type="button" onClick={() => toggleWishlist(game.id)} aria-label={wishlist.includes(game.id) ? `移除${game.title}愿望单` : `将${game.title}加入愿望单`}>{wishlist.includes(game.id) ? "♥" : "♡"}</button>
+            </footer>
+          </div>
+        </article>
+      );
+    }
+
+    const game = item.game;
+    return (
+      <article className="catalog-card discovered-card" key={`discovered-${game.id}`}>
+        <a className="card-art-button" href={game.sourceUrl} target="_blank" rel="noreferrer" aria-label={`打开${game.title}公共资料`}>
+          <DiscoveredArtwork game={game} />
+          <span className={`card-status status-${game.status}`}>{statusLabels[game.status]}</span>
+          <span className="card-countdown">{game.releaseDate ? (game.status === "released" ? "OUT NOW" : countdownLabel({ status: game.status, releaseDate: game.releaseDate })) : "TBA"}</span>
+        </a>
+        <div className="catalog-card-copy">
+          <div className="catalog-meta"><span>自动发现</span><span>待官方核验</span><span>{game.dateLabel}</span></div>
+          <h3><a href={game.sourceUrl} target="_blank" rel="noreferrer">{game.title} ↗</a></h3>
+          <p className="original-title">{game.developer} · {game.publisher}</p>
+          <p className="card-summary">{game.summary || "已从年度游戏发布索引发现这部作品；平台、日期和厂商信息将在进入真实性台账前继续核验。"}</p>
+          <div className="tag-row">{(game.genres.length ? game.genres : ["类型待核验"]).slice(0, 3).map((genre) => <span key={genre}>{genre}</span>)}</div>
+          <footer>
+            <div className="platform-list">{(game.platforms.length ? game.platforms : ["TBA"]).slice(0, 4).map((entry) => <span key={entry}>{entry}</span>)}</div>
+            <a className="source-link" href={game.sourceUrl} target="_blank" rel="noreferrer">资料 ↗</a>
+          </footer>
+        </div>
+      </article>
+    );
+  }
+
+  function renderPagination() {
+    if (catalogTotalPages <= 1) return null;
+    const pages = Array.from({ length: catalogTotalPages }, (_, index) => index + 1)
+      .filter((page) => page === 1 || page === catalogTotalPages || Math.abs(page - safeCatalogPage) <= 2);
+    return (
+      <nav className="pagination" aria-label="游戏目录分页">
+        <button type="button" disabled={safeCatalogPage === 1} onClick={() => changePage(safeCatalogPage - 1)}>← 上一页</button>
+        <div>
+          {pages.map((page, index) => (
+            <span key={page}>
+              {index > 0 && page - pages[index - 1] > 1 && <i>…</i>}
+              <button type="button" className={page === safeCatalogPage ? "active" : ""} aria-current={page === safeCatalogPage ? "page" : undefined} onClick={() => changePage(page)}>{page}</button>
+            </span>
+          ))}
+        </div>
+        <button type="button" disabled={safeCatalogPage === catalogTotalPages} onClick={() => changePage(safeCatalogPage + 1)}>下一页 →</button>
+      </nav>
+    );
+  }
+
   function renderRadar() {
     return (
       <>
@@ -380,16 +788,16 @@ export default function Home() {
           <div className="hero-copy">
             <p className="eyebrow"><span /> 个人游戏情报台 · {SNAPSHOT_DATE.replaceAll("-", ".")}</p>
             <h1>下一段值得<br />投入的<span>世界。</span></h1>
-            <p className="hero-lede">从官方发布、开发者访谈到仍未定档的计划；核验目录之外，还能实时检索更广阔的公共游戏索引。</p>
+            <p className="hero-lede">从官方发布、开发者访谈到仍未定档的计划；每次打开自动刷新本年度与下一年度发布索引，核验档案与新发现分层展示。</p>
             <div className="hero-actions">
-              <button className="primary-action" onClick={() => document.querySelector("#catalog")?.scrollIntoView({ behavior: "smooth" })}>浏览 {games.length} 部档案 <span>↓</span></button>
+              <button className="primary-action" onClick={() => document.querySelector("#catalog")?.scrollIntoView({ behavior: "smooth" })}>浏览 {games.length + discoveredGames.length} 部游戏 <span>↓</span></button>
               <button className="text-action" onClick={() => openView("sources")}>真实性规则 ↗</button>
             </div>
           </div>
           <div className="signal-orbit" aria-hidden="true">
             <div className="orbit orbit-one" />
             <div className="orbit orbit-two" />
-            <div className="orbit-core"><b>{games.length}</b><span>条核验档案</span></div>
+            <div className="orbit-core"><b>{games.length + discoveredGames.length}</b><span>{feedState === "loading" ? "正在自动更新" : "核验 + 新发现"}</span></div>
             <i className="signal-dot dot-one" />
             <i className="signal-dot dot-two" />
             <i className="signal-dot dot-three" />
@@ -436,8 +844,8 @@ export default function Home() {
 
         <section className="catalog-section" id="catalog">
           <div className="section-title-row catalog-heading">
-            <div><p className="eyebrow">VERIFIED CATALOG</p><h2>发售雷达</h2></div>
-            <p>已发售、定档与未定档严格分开；没有日期时不做猜测。</p>
+            <div><p className="eyebrow">ADAPTIVE RELEASE CATALOG</p><h2>发售雷达</h2></div>
+            <p>已核验档案与自动发现分层显示；网格随窗口和缩放自适应，没有日期时不做猜测。</p>
           </div>
           <div className="filter-panel">
             <div className="status-tabs" aria-label="状态筛选">
@@ -447,42 +855,23 @@ export default function Home() {
                 ["upcoming", "待发售"],
                 ["development", "开发中"],
               ] as Array<[StatusFilter, string]>).map(([value, label]) => (
-                <button className={status === value ? "active" : ""} type="button" key={value} onClick={() => setStatus(value)}>{label}<small>{value === "all" ? games.length : games.filter((game) => game.status === value).length}</small></button>
+                <button className={status === value ? "active" : ""} type="button" key={value} onClick={() => { setStatus(value); resetCatalogPage(); }}>{label}<small>{(value === "all" ? games.length : games.filter((game) => game.status === value).length) + discoveredCounts[value]}</small></button>
               ))}
             </div>
             <div className="filter-controls">
-              <label><span>平台</span><select value={platform} onChange={(event) => setPlatform(event.target.value as "all" | Platform)}><option value="all">全部平台</option>{Object.entries(platformLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-              <label><span>地区</span><select value={region} onChange={(event) => setRegion(event.target.value as typeof region)}><option value="all">全部地区</option><option value="日本">日本</option><option value="欧美">欧美</option><option value="其他">其他</option></select></label>
-              <label><span>排序</span><select value={sort} onChange={(event) => setSort(event.target.value as SortKey)}><option value="recommend">编辑推荐</option><option value="date-asc">日期由近到远</option><option value="date-desc">日期由远到近</option><option value="score">四维均分</option></select></label>
-              <label className="catalog-search"><span className="visually-hidden">搜索档案</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索游戏 / 公司 / 类型" /><b>⌕</b></label>
+              <label><span>平台</span><select value={platform} onChange={(event) => { setPlatform(event.target.value as "all" | Platform); resetCatalogPage(); }}><option value="all">全部平台</option>{Object.entries(platformLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
+              <label><span>地区</span><select value={region} onChange={(event) => { setRegion(event.target.value as typeof region); resetCatalogPage(); }}><option value="all">全部地区</option><option value="日本">日本</option><option value="欧美">欧美</option><option value="其他">其他</option></select></label>
+              <label><span>排序</span><select value={sort} onChange={(event) => { setSort(event.target.value as SortKey); resetCatalogPage(); }}><option value="recommend">编辑推荐</option><option value="date-asc">日期由近到远</option><option value="date-desc">日期由远到近</option><option value="score">四维均分</option></select></label>
+              <label className="catalog-search"><span className="visually-hidden">搜索档案</span><input value={query} onChange={(event) => { setQuery(event.target.value); resetCatalogPage(); }} placeholder="搜索游戏 / 公司 / 类型" /><b>⌕</b></label>
             </div>
           </div>
 
-          <div className="result-row"><span>显示 <b>{filtered.length}</b> / {games.length}</span>{(query || status !== "all" || platform !== "all" || region !== "all") && <button type="button" onClick={() => { setQuery(""); setStatus("all"); setPlatform("all"); setRegion("all"); }}>清除筛选 ×</button>}</div>
-          {filtered.length ? (
-            <div className="game-grid">
-              {filtered.map((game) => (
-                <article className="catalog-card" key={game.id}>
-                  <button className="card-art-button" type="button" onClick={() => setSelected(game)} aria-label={`打开${game.title}档案`}>
-                    <GameArtwork game={game} compact />
-                    <span className={`card-status status-${game.status}`}>{statusLabels[game.status]}</span>
-                    <span className="card-countdown">{countdownLabel(game)}</span>
-                  </button>
-                  <div className="catalog-card-copy">
-                    <div className="catalog-meta"><span>{game.country}</span><span>{game.signal}</span><span>{game.dateLabel}</span></div>
-                    <h3><button type="button" onClick={() => setSelected(game)}>{game.title}</button></h3>
-                    <p className="original-title">{game.originalTitle}</p>
-                    <p className="card-summary">{game.summary}</p>
-                    <div className="tag-row">{game.genres.slice(0, 3).map((genre) => <span key={genre}>{genre}</span>)}</div>
-                    <ScoreBars scores={scoreFor(game)} compact />
-                    <footer>
-                      <div className="platform-list">{game.platforms.map((item) => <span key={item}>{platformLabels[item]}</span>)}</div>
-                      <button className={wishlist.includes(game.id) ? "wish-button active" : "wish-button"} type="button" onClick={() => toggleWishlist(game.id)} aria-label={wishlist.includes(game.id) ? `移除${game.title}愿望单` : `将${game.title}加入愿望单`}>{wishlist.includes(game.id) ? "♥" : "♡"}</button>
-                    </footer>
-                  </div>
-                </article>
-              ))}
-            </div>
+          <div className="result-row" id="catalog-results"><span>显示 <b>{firstCatalogResult}–{lastCatalogResult}</b> / {catalogItems.length} · 官方核验 {verifiedFiltered.length} · 自动发现 {discoveredFiltered.length} {feedState === "loading" && "· 正在刷新…"}{feedState === "error" && "· 自动索引暂不可用"}</span>{(query || status !== "all" || platform !== "all" || region !== "all") && <button type="button" onClick={() => { setQuery(""); setStatus("all"); setPlatform("all"); setRegion("all"); resetCatalogPage(); }}>清除筛选 ×</button>}</div>
+          {catalogItems.length ? (
+            <>
+              <div className="game-grid">{pagedCatalogItems.map(renderCatalogItem)}</div>
+              {renderPagination()}
+            </>
           ) : <div className="empty-state"><span>NO VERIFIED SIGNAL</span><h3>已核验目录没有匹配项</h3><p>继续查看下方动态结果，或尝试英文名与系列名。</p></div>}
           {renderOnlineSearch()}
         </section>
@@ -581,7 +970,16 @@ export default function Home() {
         <nav aria-label="主要导航">
           {([['radar', '雷达'], ['calendar', '日历'], ['mine', '我的'], ['sources', '来源']] as Array<[View, string]>).map(([value, label]) => <button className={view === value ? "active" : ""} type="button" key={value} onClick={() => openView(value)}>{label}</button>)}
         </nav>
-        <div className="topbar-actions"><label className="top-search"><span className="visually-hidden">搜索游戏</span><input value={query} onChange={(event) => { setQuery(event.target.value); if (view !== "radar") setView("radar"); }} placeholder="动态搜索游戏" /><b>⌕</b></label><button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")} aria-label={theme === "light" ? "切换为深色主题" : "切换为浅色主题"} title={theme === "light" ? "切换为深色主题" : "切换为浅色主题"}><span aria-hidden="true">{theme === "light" ? "☾" : "☀"}</span></button><button className="shelf-shortcut" type="button" onClick={() => openView("mine")}><span>♡</span><b>{wishlist.length}</b></button></div>
+        <div className="topbar-actions">
+          <label className="top-search"><span className="visually-hidden">搜索游戏</span><input value={query} onChange={(event) => { setQuery(event.target.value); resetCatalogPage(); if (view !== "radar") setView("radar"); }} placeholder="动态搜索游戏" /><b>⌕</b></label>
+          <div className="zoom-control" role="group" aria-label="界面缩放">
+            <button type="button" disabled={uiScale === UI_SCALES[0]} onClick={() => setUiScale(UI_SCALES[Math.max(0, UI_SCALES.indexOf(uiScale) - 1)])} aria-label="缩小界面">A−</button>
+            <button className="zoom-value" type="button" onClick={() => setUiScale(1)} aria-label="恢复百分之百缩放" title="恢复 100%">{Math.round(uiScale * 100)}%</button>
+            <button type="button" disabled={uiScale === UI_SCALES.at(-1)} onClick={() => setUiScale(UI_SCALES[Math.min(UI_SCALES.length - 1, UI_SCALES.indexOf(uiScale) + 1)])} aria-label="放大界面">A+</button>
+          </div>
+          <button className="theme-toggle" type="button" onClick={() => setTheme((current) => current === "light" ? "dark" : "light")} aria-label={theme === "light" ? "切换为深色主题" : "切换为浅色主题"} title={theme === "light" ? "切换为深色主题" : "切换为浅色主题"}><span aria-hidden="true">{theme === "light" ? "☾" : "☀"}</span></button>
+          <button className="shelf-shortcut" type="button" onClick={() => openView("mine")}><span>♡</span><b>{wishlist.length}</b></button>
+        </div>
       </header>
 
       {view === "radar" && renderRadar()}
