@@ -113,7 +113,7 @@ function fetchGameCover(title: string) {
   const pending = coverRequests.get(title);
   if (pending) return pending;
 
-  const request = searchWikipedia(`\"${title}\"`, 1)
+  const request = searchWikipedia(`"${title}"`, 1)
     .then((items) => items[0]?.thumbnail?.source ?? null)
     .catch(() => null)
     .then((url) => {
@@ -219,7 +219,7 @@ export default function Home() {
 
   useEffect(() => {
     const savedTheme = localStorage.getItem(THEME_KEY);
-    if (savedTheme === "dark") setTheme("dark");
+    if (savedTheme === "dark") queueMicrotask(() => setTheme("dark"));
   }, []);
 
   useEffect(() => {
@@ -231,9 +231,11 @@ export default function Home() {
   useEffect(() => {
     const term = query.trim();
     if (term.length < 2) {
-      setOnlineResults([]);
-      setOnlineState("idle");
-      return;
+      const resetTimer = window.setTimeout(() => {
+        setOnlineResults([]);
+        setOnlineState("idle");
+      }, 0);
+      return () => window.clearTimeout(resetTimer);
     }
 
     const controller = new AbortController();

@@ -27,6 +27,6 @@ test("server-renders the Release Signal application", async () => {
   assert.match(html, /情报变更记录/);
   assert.match(html, /动态检索更多游戏/);
   assert.match(html, /切换为深色主题/);
-  assert.match(html, /property="og:image"[^>]+content="https?:\/\/[^"]+\/og\.png"/);
+  assert.match(html, /property="og:image"[^>]+content="https?:\/\/[^"]+\/og-light\.png"/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });

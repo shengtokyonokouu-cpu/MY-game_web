@@ -20,7 +20,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const origin = `${protocol}://${host}`;
   const title = "发售信号｜个人新游雷达";
   const description = "追踪已发售、待发售、开发者访谈与未定档计划，并以玩法、剧情、画面、音乐建立自己的游戏档案。";
-  const image = `${origin}/og.png`;
+  const image = `${origin}/og-light.png`;
 
   return {
     metadataBase: new URL(origin),
@@ -28,8 +28,8 @@ export async function generateMetadata(): Promise<Metadata> {
     description,
     applicationName: "发售信号",
     icons: {
-      icon: "/og.png",
-      shortcut: "/og.png",
+      icon: "/og-light.png",
+      shortcut: "/og-light.png",
     },
     openGraph: {
       title,
