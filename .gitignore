@@ -39,3 +39,6 @@ yarn-error.log*
 /outputs/
 /work/
 *.tsbuildinfo
+.dev.vars
+.dev.vars.*
+!.dev.vars.example

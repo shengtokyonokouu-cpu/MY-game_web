@@ -3,5 +3,7 @@
   "name": "release-signal",
   "pages_build_output_dir": "./dist/pages",
   "compatibility_date": "2026-05-22",
-  "compatibility_flags": ["nodejs_compat"]
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": { "PUBLIC_ORIGIN": "https://release-signal.pages.dev" },
+  "d1_databases": [{ "binding": "DB", "database_name": "release-signal-accounts", "database_id": "9692c348-0822-4344-ada2-69440482ad97", "migrations_dir": "drizzle" }]
 }
