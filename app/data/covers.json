@@ -1,87 +1,102 @@
 {
-  "marvels-wolverine": {
-    "image": "/covers/marvels-wolverine.jpg",
-    "source": "https://upload.wikimedia.org/wikipedia/en/3/3d/Marvel%27s_Wolverine_cover_art.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
-    "article": "https://en.wikipedia.org/wiki/Marvel's_Wolverine"
+  "deltarune": {
+    "image": "/covers/deltarune.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1671210/7ccda5b1631d2e60cc756a3271e845dbb9168821/header.jpg?t=1782314340",
+    "article": null
   },
-  "forza-horizon-6": {
-    "image": "/covers/forza-horizon-6.jpg",
-    "source": "https://upload.wikimedia.org/wikipedia/en/d/dd/Forza_Horizon_6_key_art.jpeg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
-    "article": "https://en.wikipedia.org/wiki/Forza_Horizon_6"
+  "fantasy-life-i": {
+    "image": "/covers/fantasy-life-i.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2993780/header.jpg?t=1749900924",
+    "article": null
   },
   "trails-beyond-horizon": {
     "image": "/covers/trails-beyond-horizon.jpg",
-    "source": "https://upload.wikimedia.org/wikipedia/en/4/4a/Trails_Beyond_the_Horizon_artwork.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
-    "article": "https://en.wikipedia.org/wiki/The_Legend_of_Heroes%3A_Kai_no_Kiseki"
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3316940/b0313637ada94f14979cf3712552feb50b6aa393/header.jpg?t=1771470581",
+    "article": null
   },
-  "grand-theft-auto-vi": {
-    "image": "/covers/grand-theft-auto-vi.png",
-    "source": "https://upload.wikimedia.org/wikipedia/en/4/46/Grand_Theft_Auto_VI.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
-    "article": "https://en.wikipedia.org/wiki/Grand_Theft_Auto_VI"
-  },
-  "resident-evil-requiem": {
-    "image": "/covers/resident-evil-requiem.jpg",
-    "source": "https://upload.wikimedia.org/wikipedia/en/1/15/Resident_Evil_Requiem_Cover_Art.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
-    "article": "https://en.wikipedia.org/wiki/Resident_Evil_Requiem"
-  },
-  "the-duskbloods": {
-    "image": "/covers/the-duskbloods.png",
-    "source": "https://upload.wikimedia.org/wikipedia/en/b/b4/The_Duskbloods_logo.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
-    "article": "https://en.wikipedia.org/wiki/The_Duskbloods"
+  "dragon-quest-7-reimagined": {
+    "image": "/covers/dragon-quest-7-reimagined.jpg",
+    "source": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2499860/ea0c655407c078a8994b7e91256c79d90169133a/header.jpg?t=1785474787",
+    "article": null
   },
   "clair-obscur-expedition-33": {
     "image": "/covers/clair-obscur-expedition-33.webp",
     "source": "https://upload.wikimedia.org/wikipedia/en/5/5a/Clair_Obscur%2C_Expedition_33_Cover_1.webp?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
     "article": "https://en.wikipedia.org/wiki/Clair_Obscur%3A_Expedition_33"
   },
+  "grand-theft-auto-vi": {
+    "image": "/covers/grand-theft-auto-vi.png",
+    "source": "https://upload.wikimedia.org/wikipedia/en/4/46/Grand_Theft_Auto_VI.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+    "article": "https://en.wikipedia.org/wiki/Grand_Theft_Auto_VI"
+  },
+  "forza-horizon-6": {
+    "image": "/covers/forza-horizon-6.jpg",
+    "source": "https://upload.wikimedia.org/wikipedia/en/d/dd/Forza_Horizon_6_key_art.jpeg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+    "article": "https://en.wikipedia.org/wiki/Forza_Horizon_6"
+  },
   "split-fiction": {
     "image": "/covers/split-fiction.jpg",
     "source": "https://upload.wikimedia.org/wikipedia/en/4/40/Split_Fiction_cover_art.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
     "article": "https://en.wikipedia.org/wiki/Split_Fiction"
   },
-  "control-resonant": {
-    "image": "/covers/control-resonant.png",
-    "source": "https://upload.wikimedia.org/wikipedia/en/a/a1/Control_Resonant_cover_art.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
-    "article": "https://en.wikipedia.org/wiki/Control_Resonant"
-  },
-  "fire-emblem-fortunes-weave": {
-    "image": "/covers/fire-emblem-fortunes-weave.jpg",
-    "source": "https://upload.wikimedia.org/wikipedia/en/a/af/Fire_Emblem_Fortune%27s_Weave_cover.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
-    "article": "https://en.wikipedia.org/wiki/Fire_Emblem%3A_Fortune's_Weave"
-  },
-  "onimusha-way-of-the-sword": {
-    "image": "/covers/onimusha-way-of-the-sword.jpg",
-    "source": "https://upload.wikimedia.org/wikipedia/en/6/6a/Onimusha_Way_of_the_Sword.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
-    "article": "https://en.wikipedia.org/wiki/Onimusha%3A_Way_of_the_Sword"
-  },
-  "adventures-of-elliot": {
-    "image": "/covers/adventures-of-elliot.png",
-    "source": "https://upload.wikimedia.org/wikipedia/en/8/89/The_Adventures_of_Elliot_The_Millennium_Tales_cover.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
-    "article": "https://en.wikipedia.org/wiki/The_Adventures_of_Elliot%3A_The_Millennium_Tales"
+  "marvels-wolverine": {
+    "image": "/covers/marvels-wolverine.jpg",
+    "source": "https://upload.wikimedia.org/wikipedia/en/3/3d/Marvel%27s_Wolverine_cover_art.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+    "article": "https://en.wikipedia.org/wiki/Marvel's_Wolverine"
   },
   "death-stranding-2": {
     "image": "/covers/death-stranding-2.jpg",
     "source": "https://upload.wikimedia.org/wikipedia/en/e/e0/Death_Stranding_2_Icon.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
     "article": "https://en.wikipedia.org/wiki/Death_Stranding_2%3A_On_the_Beach"
   },
-  "tomb-raider-legacy-atlantis": {
-    "image": "/covers/tomb-raider-legacy-atlantis.jpg",
-    "source": "https://upload.wikimedia.org/wikipedia/en/5/5b/Tomb_Raider_Legacy_of_Atlantis_cover.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
-    "article": "https://en.wikipedia.org/wiki/Tomb_Raider%3A_Legacy_of_Atlantis"
+  "the-duskbloods": {
+    "image": "/covers/the-duskbloods.png",
+    "source": "https://upload.wikimedia.org/wikipedia/en/b/b4/The_Duskbloods_logo.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+    "article": "https://en.wikipedia.org/wiki/The_Duskbloods"
+  },
+  "onimusha-way-of-the-sword": {
+    "image": "/covers/onimusha-way-of-the-sword.jpg",
+    "source": "https://upload.wikimedia.org/wikipedia/en/6/6a/Onimusha_Way_of_the_Sword.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+    "article": "https://en.wikipedia.org/wiki/Onimusha%3A_Way_of_the_Sword"
+  },
+  "fire-emblem-fortunes-weave": {
+    "image": "/covers/fire-emblem-fortunes-weave.jpg",
+    "source": "https://upload.wikimedia.org/wikipedia/en/a/af/Fire_Emblem_Fortune%27s_Weave_cover.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+    "article": "https://en.wikipedia.org/wiki/Fire_Emblem%3A_Fortune's_Weave"
+  },
+  "intergalactic-heretic-prophet": {
+    "image": "/covers/intergalactic-heretic-prophet.png",
+    "source": "https://upload.wikimedia.org/wikipedia/en/5/53/Intergalactic_The_Heretic_Prophet_poster.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+    "article": "https://en.wikipedia.org/wiki/Intergalactic%3A_The_Heretic_Prophet"
+  },
+  "resident-evil-requiem": {
+    "image": "/covers/resident-evil-requiem.jpg",
+    "source": "https://upload.wikimedia.org/wikipedia/en/1/15/Resident_Evil_Requiem_Cover_Art.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+    "article": "https://en.wikipedia.org/wiki/Resident_Evil_Requiem"
   },
   "fable": {
     "image": "/covers/fable.png",
     "source": "https://upload.wikimedia.org/wikipedia/en/3/3c/Fable_cover_art.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
     "article": "https://en.wikipedia.org/wiki/Fable_(upcoming_video_game)"
   },
+  "control-resonant": {
+    "image": "/covers/control-resonant.png",
+    "source": "https://upload.wikimedia.org/wikipedia/en/a/a1/Control_Resonant_cover_art.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+    "article": "https://en.wikipedia.org/wiki/Control_Resonant"
+  },
+  "adventures-of-elliot": {
+    "image": "/covers/adventures-of-elliot.png",
+    "source": "https://upload.wikimedia.org/wikipedia/en/8/89/The_Adventures_of_Elliot_The_Millennium_Tales_cover.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+    "article": "https://en.wikipedia.org/wiki/The_Adventures_of_Elliot%3A_The_Millennium_Tales"
+  },
+  "tomb-raider-legacy-atlantis": {
+    "image": "/covers/tomb-raider-legacy-atlantis.jpg",
+    "source": "https://upload.wikimedia.org/wikipedia/en/5/5b/Tomb_Raider_Legacy_of_Atlantis_cover.jpg?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
+    "article": "https://en.wikipedia.org/wiki/Tomb_Raider%3A_Legacy_of_Atlantis"
+  },
   "persona-4-revival": {
     "image": "/covers/persona-4-revival.png",
     "source": "https://upload.wikimedia.org/wikipedia/en/c/c3/Persona_4_Revival_-_Official_Key_Art.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
     "article": "https://en.wikipedia.org/wiki/Persona_4_Revival"
-  },
-  "intergalactic-heretic-prophet": {
-    "image": "/covers/intergalactic-heretic-prophet.png",
-    "source": "https://upload.wikimedia.org/wikipedia/en/5/53/Intergalactic_The_Heretic_Prophet_poster.png?utm_source=en.wikipedia.org&utm_campaign=api&utm_content=thumbnail_unscaled",
-    "article": "https://en.wikipedia.org/wiki/Intergalactic%3A_The_Heretic_Prophet"
   }
 }

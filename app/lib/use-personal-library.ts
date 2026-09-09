@@ -1,10 +1,9 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, type SetStateAction } from "react";
 import { LIBRARY_KEY, migrateLibrary, validateLibrary, type Library } from "./catalog";
-import { changedIds, mergeThreeWay, type Conflict } from "./sync";
+import { changedIds, decodeAccountCache, encodeAccountCache, mergeThreeWay, type CloudSnapshot, type Conflict } from "./sync";
 import type { Account } from "./auth";
 
-type CloudSnapshot = { entries: Library; version: number };
 type Session = { available: boolean; user: Account | null; csrf: string | null };
 export type SyncState = "loading" | "guest" | "syncing" | "synced" | "pending" | "error" | "conflict";
 const cacheKey = (id: string) => `release-signal-account-cache:${id}`;
@@ -18,13 +17,15 @@ export function usePersonalLibrary() {
   const [conflicts, setConflicts] = useState<Conflict[]>([]); const conflictsRef = useRef<Conflict[]>([]);
   const dataRef = useRef<Library>({}); const baseRef = useRef<CloudSnapshot>({ entries: {}, version: 0 }); const busy = useRef(false); const generation = useRef(0); const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [guestCount, setGuestCount] = useState(0);
+  const blockedCache = useRef(false); const [cacheBlocked, setCacheBlocked] = useState(false);
   const persist = useCallback(() => {
-    try { const user = sessionRef.current.user; if (user) localStorage.setItem(cacheKey(user.id), JSON.stringify({ base: baseRef.current, entries: dataRef.current })); else localStorage.setItem(LIBRARY_KEY, JSON.stringify({ version: 2, entries: dataRef.current })); setStorageError(""); }
+    if (blockedCache.current) return;
+    try { const user = sessionRef.current.user; if (user) localStorage.setItem(cacheKey(user.id), encodeAccountCache(baseRef.current, dataRef.current, conflictsRef.current)); else localStorage.setItem(LIBRARY_KEY, JSON.stringify({ version: 2, entries: dataRef.current })); setStorageError(""); }
     catch { setStorageError("本机缓存保存失败，请导出当前备份。云端同步状态见账号面板。"); }
   }, []);
   const show = useCallback((entries: Library) => { dataRef.current = entries; setVisibleLibrary(entries); }, []);
   const sync = useCallback(async () => {
-    const active = sessionRef.current; if (!active.user || !active.csrf || busy.current || conflictsRef.current.length) return;
+    const active = sessionRef.current; if (!active.user || !active.csrf || busy.current || conflictsRef.current.length || blockedCache.current) return;
     const run = generation.current; busy.current = true; setSyncState("syncing"); setSyncError("");
     try {
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -47,8 +48,9 @@ export function usePersonalLibrary() {
     finally { busy.current = false; }
   }, [persist, show]);
   const setLibrary = useCallback((action: SetStateAction<Library>) => {
-    const next = typeof action === "function" ? action(dataRef.current) : action; show(next); persist();
+    const next = typeof action === "function" ? action(dataRef.current) : action; show(next);
     if (conflictsRef.current.length) { conflictsRef.current = conflictsRef.current.map((conflict) => ({ ...conflict, local: next[conflict.id] || null })); setConflicts(conflictsRef.current); }
+    persist();
     if (sessionRef.current.user) { setSyncState(conflictsRef.current.length ? "conflict" : "pending"); if (timer.current) clearTimeout(timer.current); timer.current = setTimeout(() => void sync(), 700); }
   }, [show, persist, sync]);
   useEffect(() => {
@@ -59,13 +61,13 @@ export function usePersonalLibrary() {
       catch { current = { user: null, csrf: null, available: false }; setSyncError("账号服务暂时不可用；本机模式仍可使用，刷新页面后重试登录。"); }
       if (cancelled) return; sessionRef.current = current; setSession(current);
       try {
-        const guest = guestLibrary(); setGuestCount(Object.keys(guest).length);
         if (current.user) {
+          try { setGuestCount(Object.keys(guestLibrary()).length); } catch { /* A damaged guest library must not block a separate account. */ }
           const raw = localStorage.getItem(cacheKey(current.user.id));
-          if (raw) { const cached = JSON.parse(raw); const entries = validateLibrary({ version: 2, entries: cached.entries }); const base = validateLibrary({ version: 2, entries: cached.base?.entries }); baseRef.current = { entries: base, version: cached.base.version }; show(entries); }
-        } else { show(guest); persist(); }
-      } catch { setStorageError("部分本机记录无法读取，原始数据已保留，可在设置中导出恢复。"); }
-      setReady(true); if (current.user) void sync(); else setSyncState("guest");
+          if (raw) { const cached = decodeAccountCache(raw); baseRef.current = cached.base; show(cached.entries); conflictsRef.current = cached.conflicts; setConflicts(cached.conflicts); }
+        } else { const guest = guestLibrary(); setGuestCount(Object.keys(guest).length); show(guest); persist(); }
+      } catch { blockedCache.current = true; setCacheBlocked(true); setStorageError("本机记录无法读取，已暂停写入与同步以保留原始数据。请在设置中导出原始记录，修复后导入备份。"); }
+      setReady(true); if (blockedCache.current) setSyncState("error"); else if (conflictsRef.current.length) setSyncState("conflict"); else if (current.user) void sync(); else setSyncState("guest");
     }, 0);
     const focus = () => { if (document.visibilityState === "visible") void sync(); }; const interval = setInterval(focus, 30000); window.addEventListener("focus", focus); window.addEventListener("online", focus);
     // This ref is a request epoch, not a DOM reference: invalidate asynchronous requests on cleanup.
@@ -81,10 +83,12 @@ export function usePersonalLibrary() {
   async function logout() {
     try {
       const response = await fetch("/api/auth/logout", { method: "POST", headers: { "X-CSRF-Token": sessionRef.current.csrf || "" } }); if (!response.ok && response.status !== 401) throw new Error("退出失败，请稍后再试。");
-      if (sessionRef.current.user && !changedIds(baseRef.current.entries, dataRef.current).length) { try { localStorage.removeItem(cacheKey(sessionRef.current.user.id)); } catch { /* The account cache is still isolated from guest/other accounts. */ } }
-      generation.current++; if (timer.current) clearTimeout(timer.current); const guest = guestLibrary(); sessionRef.current = { ...sessionRef.current, user: null, csrf: null }; setSession(sessionRef.current); baseRef.current = { entries: {}, version: 0 }; conflictsRef.current = []; setConflicts([]); show(guest); setSyncState("guest"); setSyncError("");
+      if (sessionRef.current.user && !blockedCache.current && !conflictsRef.current.length && !changedIds(baseRef.current.entries, dataRef.current).length) { try { localStorage.removeItem(cacheKey(sessionRef.current.user.id)); } catch { /* The account cache is still isolated from guest/other accounts. */ } }
+      generation.current++; if (timer.current) clearTimeout(timer.current); sessionRef.current = { ...sessionRef.current, user: null, csrf: null }; setSession(sessionRef.current); baseRef.current = { entries: {}, version: 0 }; conflictsRef.current = []; setConflicts([]); blockedCache.current = false; setCacheBlocked(false); setStorageError(""); show({}); setSyncState("guest"); setSyncError("");
+      try { show(guestLibrary()); } catch { blockedCache.current = true; setCacheBlocked(true); setStorageError("已退出账号。本机记录无法读取，请在设置中导出原始记录后恢复。"); }
     } catch (error) { setSyncError(error instanceof Error ? error.message : "退出失败"); }
   }
   function importGuest() { try { const guest = guestLibrary(); setLibrary((current) => ({ ...guest, ...current })); } catch { setSyncError("本机记录无法读取，请先导出原始备份。"); } }
-  return { library, setLibrary, ready, storageError, clearError: () => setStorageError(""), session, syncState, syncError, lastSynced, conflicts, resolveConflict, sync, logout, importGuest, guestCount };
+  function clearError() { blockedCache.current = false; setCacheBlocked(false); persist(); if (sessionRef.current.user) void sync(); }
+  return { library, setLibrary, ready, storageError, cacheBlocked, clearError, session, syncState, syncError, lastSynced, conflicts, resolveConflict, sync, logout, importGuest, guestCount };
 }

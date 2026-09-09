@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CatalogGame } from "../lib/catalog";
+import { gameArticle } from "../lib/game-artwork";
 const paths: Record<string, ReactNode> = {
   discover: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
   calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2"/></>,
@@ -17,12 +18,14 @@ const paths: Record<string, ReactNode> = {
 };
 export function Icon({ name, className = "" }: { name: string; className?: string }) { return <svg className={`icon ${className}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] ?? paths.game}</svg>; }
 export function GameCover({ game, eager = false }: { game: CatalogGame; eager?: boolean }) {
-  const [failed, setFailed] = useState(!game.image && !game.articleTitle);
-  const image = game.image?.startsWith("/") ? game.image : game.image ? `/api/image?url=${encodeURIComponent(game.image)}` : `/api/cover?title=${encodeURIComponent(game.articleTitle || game.originalTitle)}`;
+  const [failedUrls, setFailedUrls] = useState<string[]>([]);
+  const lookup = new URLSearchParams({ name: game.originalTitle }); if (gameArticle(game.articleTitle) && !game.id.startsWith("steam-")) lookup.set("title", game.articleTitle);
+  const candidates = [game.image?.startsWith("/") ? game.image : game.image ? `/api/image?url=${encodeURIComponent(game.image)}` : "", game.originalTitle ? `/api/cover?${lookup}` : ""].filter(Boolean);
+  const image = candidates.find((url) => !failedUrls.includes(url)); const failed = !image;
   return <div className={`game-cover ${failed ? "cover-missing" : ""}`}>
     {/* Remote covers are fetched through the same-origin, allowlisted image service. */}
     {/* eslint-disable-next-line @next/next/no-img-element */}
-    {!failed && <img src={image} alt={`${game.title}封面`} loading={eager ? "eager" : "lazy"} decoding="async" onError={() => setFailed(true)}/>}
+    {image && <img key={image} src={image} alt={`${game.title}封面`} loading={eager ? "eager" : "lazy"} decoding="async" onError={() => setFailedUrls((urls) => [...urls, image])}/>}
     {failed && <div><Icon name="game"/><span>{game.title}</span><small>暂无可用封面</small></div>}
   </div>;
 }

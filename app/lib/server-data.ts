@@ -1,12 +1,14 @@
 import { fetchAnnualFeed, upstreamHeaders, stableId } from "./release-feed";
 import { mergeCatalog, type CatalogFeed, type CatalogGame } from "./catalog";
 import snapshot from "../data/discovered.json";
+import { gameArticle, trustedGamePage, type WikiArtworkData } from "./game-artwork";
+import { findStoreArtwork } from "./store-artwork";
 
 const pending = new Map<string, Promise<Response>>();
 const localCache = new Map<string, { expires: number; response: Response }>();
 // Edge cache is best-effort; the checked-in snapshot keeps first render independent of upstream uptime.
 export async function cached(key: string, seconds: number, producer: () => Promise<Response>): Promise<Response> {
-  const request = new Request(`https://release-signal.pages.dev/_cache/v4/${encodeURIComponent(key)}`);
+  const request = new Request(`https://release-signal.pages.dev/_cache/v5/${encodeURIComponent(key)}`);
   const edge = typeof caches === "undefined" ? undefined : (caches as CacheStorage & { default?: Cache }).default;
   const hit = await edge?.match(request); if (hit) return new Response(hit.body, hit);
   const memory = localCache.get(key); if (memory && memory.expires > Date.now()) return memory.response.clone();
@@ -55,15 +57,19 @@ export async function imageResponse(raw: string) {
     return new Response(body, { headers: { "Content-Type": type, "X-Content-Type-Options": "nosniff" } });
   });
 }
-export async function resolveCover(title: string): Promise<string | null> {
+async function encyclopediaCover(title: string): Promise<string | null> {
+  if (!gameArticle(title)) return null;
   const language = /[\u3040-\u30ff]/.test(title) ? "ja" : /[\u3400-\u9fff]/.test(title) ? "zh" : "en";
-  const response = await fetch(`https://${language}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replaceAll(" ", "_"))}`, { headers: upstreamHeaders, signal: AbortSignal.timeout(10000) });
-  if (response.ok) { const page = await response.json() as { type?: string; thumbnail?: { source?: string } }; if (page.type !== "disambiguation" && page.thumbnail?.source && allowedImageUrl(page.thumbnail.source)) return page.thumbnail.source; }
   const params = new URLSearchParams({ action: "query", titles: title, redirects: "1", prop: "pageimages", piprop: "thumbnail", pilicense: "any", pilimit: "1", pithumbsize: "640", format: "json", formatversion: "2" });
   const fallback = await fetch(`https://${language}.wikipedia.org/w/api.php?${params}`, { headers: upstreamHeaders, signal: AbortSignal.timeout(10000) });
   if (!fallback.ok) return null;
-  const data = await fallback.json() as { query?: { pages?: { thumbnail?: { source?: string } }[] } };
-  const image = data.query?.pages?.[0]?.thumbnail?.source;
+  const data = await fallback.json() as WikiArtworkData;
+  const image = trustedGamePage(title, data)?.thumbnail?.source;
+  return image && allowedImageUrl(image) ? image : null;
+}
+export async function resolveCover(title: string, name = ""): Promise<string | null> {
+  try { const image = await encyclopediaCover(title); if (image) return image; } catch { /* Try an exact store match when the encyclopedia is unavailable. */ }
+  const image = name ? await findStoreArtwork(name) : null;
   return image && allowedImageUrl(image) ? image : null;
 }
 

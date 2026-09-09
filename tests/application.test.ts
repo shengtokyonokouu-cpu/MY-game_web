@@ -2,6 +2,22 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { curatedGames, matchesQuery, mergeCatalog, migrateLibrary, releaseState, validateLibrary, averageScore, type CatalogGame } from "../app/lib/catalog.ts";
 import { normalizePlatforms, parseAnnualFeed, parseDate } from "../app/lib/release-feed.ts";
+import { gameArticle, trustedGamePage } from "../app/lib/game-artwork.ts";
+import { exactStoreTitle } from "../app/lib/store-artwork.ts";
+
+test("artwork lookup rejects parent-game, series and section redirects, and fuzzy store matches", () => {
+  assert.equal(gameArticle("List of Example games"), false);
+  assert.equal(gameArticle("Example (series)"), false);
+  assert.equal(gameArticle("Example#Sequel"), false);
+  const page = { title: "Example", thumbnail: { source: "https://upload.wikimedia.org/example.png" } };
+  assert.equal(trustedGamePage("Example II", { query: { redirects: [{ from: "Example II", to: "Example", tofragment: "Sequels" }], pages: [page] } }), null);
+  assert.equal(trustedGamePage("Example II", { query: { redirects: [{ from: "Example II", to: "Example" }], pages: [page] } }), null);
+  assert.equal(trustedGamePage("Example (video game)", { query: { redirects: [{ from: "Example (video game)", to: "Example" }], pages: [page] } }), page);
+  assert.equal(exactStoreTitle("Example II", "Example III"), false);
+  assert.equal(exactStoreTitle("Example", "Example Soundtrack"), false);
+  assert.equal(exactStoreTitle("Example", "Example Remastered"), false);
+  assert.equal(exactStoreTitle("EXAMPLE™ II", "Example II"), true);
+});
 
 test("release parser handles rowspans, publisher colspans and platform-specific ports", () => {
   const html = `<table class="wikitable"><tr><th>Release date</th><th>Title</th><th>Platform(s)</th><th>Type(s)</th><th>Genre(s)</th><th>Developer(s)</th><th>Publisher(s)</th></tr>

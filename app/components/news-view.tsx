@@ -1,6 +1,7 @@
 "use client";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { NewsFeed } from "../lib/news";
+import { validateNewsFeed } from "../lib/news-cache";
 import { EmptyState, Icon } from "./ui";
 import { NewsView as SourceArchive } from "./views";
 import type { CatalogGame } from "../lib/catalog";
@@ -8,18 +9,24 @@ import type { CatalogGame } from "../lib/catalog";
 export function LiveNewsView({ query, onOpen }: { query: string; onOpen: (game: CatalogGame) => void }) {
   const [feed, setFeed] = useState<NewsFeed | null>(null);
   const [state, setState] = useState("loading"); const [filter, setFilter] = useState("all"); const [source, setSource] = useState("all"); const [page, setPage] = useState(1); const [archive, setArchive] = useState(false);
+  const requestRef = useRef<AbortController | null>(null); const checkedAt = useRef(0);
   const refresh = useCallback(async () => {
+    if (requestRef.current) return;
+    const controller = new AbortController(); requestRef.current = controller;
     setState("loading");
-    try { const response = await fetch("/api/news", { signal: AbortSignal.timeout(18000) }); if (!response.ok) throw new Error(); const next = await response.json() as NewsFeed; if (!Array.isArray(next.items)) throw new Error(); setFeed(next); setState("ready"); try { localStorage.setItem("release-signal-news-cache", JSON.stringify(next)); } catch { /* Optional reading cache. */ } }
-    catch { setState("error"); }
+    try { const response = await fetch("/api/news", { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(18000)]) }); if (!response.ok) throw new Error(); const next = validateNewsFeed(await response.json()); if (controller.signal.aborted) return; setFeed(next); setState("ready"); checkedAt.current = Date.now(); try { localStorage.setItem("release-signal-news-cache", JSON.stringify(next)); } catch { /* Optional reading cache. */ } }
+    catch { if (!controller.signal.aborted) setState("error"); }
+    finally { if (requestRef.current === controller) requestRef.current = null; }
   }, []);
   useEffect(() => {
-    const timer = setTimeout(() => { try { const old = JSON.parse(localStorage.getItem("release-signal-news-cache") || "null"); if (old && Array.isArray(old.items)) setFeed({ ...old, stale: true }); } catch { /* Bad caches are ignored. */ } void refresh(); }, 0);
+    const timer = setTimeout(() => { try { const raw = localStorage.getItem("release-signal-news-cache"); if (raw && raw.length < 1_000_000) setFeed({ ...validateNewsFeed(JSON.parse(raw)), stale: true }); } catch { /* Bad caches are ignored. */ } void refresh(); }, 0);
     const interval = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 300000);
-    const focus = () => void refresh(); window.addEventListener("focus", focus);
-    return () => { clearTimeout(timer); clearInterval(interval); window.removeEventListener("focus", focus); };
+    const focus = () => { if (document.visibilityState === "visible" && Date.now() - checkedAt.current >= 300000) void refresh(); }; window.addEventListener("focus", focus); window.addEventListener("online", focus);
+    return () => { clearTimeout(timer); clearInterval(interval); window.removeEventListener("focus", focus); window.removeEventListener("online", focus); requestRef.current?.abort(); requestRef.current = null; };
   }, [refresh]);
   const items = useMemo(() => (feed?.items || []).filter((item) => (source === "all" || item.sourceId === source) && (filter === "all" || filter === item.sourceKind || filter === item.topic) && `${item.title} ${item.excerpt} ${item.sourceName}`.toLowerCase().includes(query.toLowerCase())), [feed, filter, source, query]);
+  const previousQuery = useRef(query);
+  useEffect(() => { if (previousQuery.current !== query) { previousQuery.current = query; const timer = setTimeout(() => setPage(1), 0); return () => clearTimeout(timer); } }, [query]);
   const pages = Math.max(1, Math.ceil(items.length / 12)); const current = Math.min(page, pages);
   return <><div className="page-heading"><div><p className="eyebrow">LIVE GAME NEWS</p><h1>游戏新闻</h1><p>聚合官方公告与媒体报道，每 5 分钟检查更新。</p></div><button className="button" onClick={() => void refresh()} disabled={state === "loading"}><Icon name="refresh" className={state === "loading" ? "spin" : ""}/>{state === "loading" ? "正在更新…" : "刷新新闻"}</button></div>
     <div className="news-health" aria-live="polite"><span>{feed ? `上次获取 ${new Date(feed.fetchedAt).toLocaleString("zh-CN")}` : "正在连接新闻来源…"}</span>{feed?.sources.map((item) => <span className={item.ok ? "" : "danger"} key={item.id}>{item.name} · {item.ok ? `${item.count} 条` : "暂不可用"}</span>)}</div>
