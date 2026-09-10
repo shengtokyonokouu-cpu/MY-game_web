@@ -1,6 +1,6 @@
 import { parseHTML } from "linkedom";
 import type { CatalogFeed, CatalogGame } from "./catalog";
-import { gameArticle } from "./game-artwork.ts";
+import { gameArticle, sameGameArticle } from "./game-artwork.ts";
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const GENRES: Record<string, string> = { "Action": "动作", "Action RPG": "动作 RPG", "Action-adventure": "动作冒险", "Adventure": "冒险", "RPG": "角色扮演", "JRPG": "日式 RPG", "Tactical RPG": "策略 RPG", "Turn-based RPG": "回合制 RPG", "Platform": "平台跳跃", "Platformer": "平台跳跃", "Puzzle": "解谜", "Simulation": "模拟", "Strategy": "策略", "Survival horror": "生存恐怖", "Horror": "恐怖", "Roguelike": "Roguelike", "Roguelite": "Roguelite", "Metroidvania": "类银河战士恶魔城", "Visual novel": "视觉小说", "Racing": "竞速", "Sports": "体育", "Fighting": "格斗", "Rhythm": "音乐节奏", "FPS": "第一人称射击", "TPS": "第三人称射击", "Shooter": "射击", "Real-time strategy": "即时战略", "Stealth": "潜行", "MMORPG": "大型多人 RPG", "Survival": "生存" };
@@ -63,7 +63,7 @@ export function parseAnnualFeed(html: string, year: number, checkedAt: string): 
       const titleKey = (value: string) => value.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
       const link = Array.from(cell.querySelectorAll("a")).find((anchor) => !anchor.classList.contains("new") && /^(\.\/|\/wiki\/)/.test(anchor.getAttribute("href") || "") && titleKey(cleanText(anchor.textContent)) === titleKey(title));
       const linkedTitle = link ? decodeURIComponent((link.getAttribute("href") || "").replace(/^(\.\/|\/wiki\/)/, "")).replaceAll("_", " ") : "";
-      const article = gameArticle(linkedTitle) ? linkedTitle : "";
+      const article = gameArticle(linkedTitle) && sameGameArticle(title, linkedTitle) ? linkedTitle : "";
       const developer = field(row, "developer"); const publisher = field(row, "publisher");
       const platforms = normalizePlatforms(field(row, "platform"));
       const type = field(row, "type"); const genreText = field(row, "genre");

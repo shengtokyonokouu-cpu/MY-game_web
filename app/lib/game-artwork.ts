@@ -1,7 +1,7 @@
 // Shared by the snapshot builder and runtime lookup. Redirects to a parent game
 // or a franchise must not supply a sequel's name, synopsis or artwork.
 export function gameArticle(title: string) {
-  return !!title && !/^(List of |Category:|Template:)|\(.*series\)|列表|系列$/i.test(title) && !title.includes("#");
+  return !!title && !/^(List of |Category:|Template:)|\(.*series\)|列表|一覧|系列$|シリーズ$/i.test(title) && !title.includes("#");
 }
 function articleKey(title: string) {
   return title.normalize("NFKC").toLowerCase().replaceAll("_", " ").replace(/\([^)]*video game[^)]*\)/g, "").replace(/[^\p{L}\p{N}]/gu, "");

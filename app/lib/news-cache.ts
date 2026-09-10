@@ -1,8 +1,9 @@
 import type { NewsFeed } from "./news";
+import { newsSources } from "./news-sources.ts";
 
 // localStorage is optional and untrusted: a stale/partial cache must never make
 // the news screen crash or introduce links outside the subscribed sources.
-const origins: Record<string, string> = { playstation: "https://blog.playstation.com", xbox: "https://news.xbox.com", gematsu: "https://www.gematsu.com" };
+const origins: Record<string, string> = Object.fromEntries(newsSources.map((source) => [source.id, source.site]));
 export function validateNewsFeed(value: unknown): NewsFeed {
   const feed = value as NewsFeed | null;
   if (!feed || !Array.isArray(feed.items) || feed.items.length > 300 || !Array.isArray(feed.sources) || typeof feed.fetchedAt !== "string" || !Number.isFinite(Date.parse(feed.fetchedAt))) throw new Error("无效的新闻缓存");

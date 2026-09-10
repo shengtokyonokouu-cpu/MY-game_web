@@ -53,9 +53,11 @@ test("franchise links do not become a new game's cover or collapse separate game
   assert.equal(games.length, 2);
   assert.equal(games[0].articleTitle, "");
   assert.notEqual(games[0].id, games[1].id);
+  const misleading = `<table class="wikitable"><tr><th>Release date</th><th>Title</th></tr><tr><td>September 1</td><td><i><a href="./Grime_(video_game)">Grime II</a></i></td></tr><tr><td>September 2</td><td><i><a href="./Viktor_Antonov_(artist)">Guns of Eschaton</a></i></td></tr></table>`;
+  for (const game of parseAnnualFeed(misleading, 2026, "2026-09-06")) assert.equal(game.articleTitle, "", "Even a full-title link can point to a different game or person");
 });
 test("catalog identity is stable across refresh and unlinked games remain distinct", () => {
-  const a = { ...curatedGames[0], id: "a", title: "One", originalTitle: "One", articleTitle: "" } as CatalogGame;
+  const a = { ...curatedGames[0], names: undefined, id: "a", title: "One", originalTitle: "One", articleTitle: "" } as CatalogGame;
   const b = { ...a, id: "b", title: "Two", originalTitle: "Two" };
   assert.equal(mergeCatalog([a], [b]).length, 2);
   const duplicate = { ...a, id: "changed", image: "/covers/example.jpg" };
