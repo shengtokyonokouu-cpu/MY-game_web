@@ -6,28 +6,9 @@ import { findStoreArtwork } from "./store-artwork";
 import { fetchNintendoDirect } from "./nintendo-feed";
 export { searchGames, searchWikiGames } from "./multilingual-search";
 
-const pending = new Map<string, Promise<Response>>();
-const localCache = new Map<string, { expires: number; response: Response }>();
-// Edge cache is best-effort; the checked-in snapshot keeps first render independent of upstream uptime.
-export async function cached(key: string, seconds: number, producer: () => Promise<Response>): Promise<Response> {
-  const request = new Request(`https://release-signal.pages.dev/_cache/v6/${encodeURIComponent(key)}`);
-  const edge = typeof caches === "undefined" ? undefined : (caches as CacheStorage & { default?: Cache }).default;
-  const hit = await edge?.match(request); if (hit) return new Response(hit.body, hit);
-  const memory = localCache.get(key); if (memory && memory.expires > Date.now()) return memory.response.clone();
-  if (pending.has(key)) return (await pending.get(key)!).clone();
-  const operation = (async () => {
-    const response = await producer();
-    if (response.ok && !response.headers.get("Cache-Control")?.includes("no-store")) {
-      const result = new Response(response.body, response); result.headers.set("Cache-Control", `public, max-age=${seconds}`);
-      if (edge) await edge.put(request, result.clone()).catch(() => {});
-      else { if (localCache.size > 60) localCache.delete(localCache.keys().next().value!); localCache.set(key, { expires: Date.now() + seconds * 1000, response: result.clone() }); }
-      return result;
-    }
-    return response;
-  })();
-  pending.set(key, operation);
-  try { return (await operation).clone(); } finally { pending.delete(key); }
-}
+import { cached } from "./http-cache";
+export { cached } from "./http-cache";
+
 export async function catalogResponse() {
   return cached(`catalog-${new Date().getUTCFullYear()}`, 1800, async () => {
     const year = new Date().getUTCFullYear();

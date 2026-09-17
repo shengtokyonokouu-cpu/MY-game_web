@@ -23,6 +23,7 @@
 - `app/components/ip-components.tsx`：频道目录、频道看板、标签、联想、关注 Feed、通知中心。
 - `app/components/ip-provider.tsx`：账号隔离的 React Context；订阅/通知云端状态、串行请求、失败重试、登录引导。
 - `app/lib/use-news-feed.ts` / `news-service.ts`：新闻共享读取；多个视图不分别发起相同的客户端抓取；服务端缓存 5 分钟。
+- `app/lib/http-cache.ts`：并发请求只共享已经读取完毕的字节和响应头，不跨 Cloudflare 请求共享活跃响应流；每个调用者获得独立响应体，失败不污染缓存。
 - `app/lib/ip-account-api.ts`：鉴权、CSRF、请求大小检查、关注幂等写入、通知去重与已读操作。
 - `app/ip.css`：复用现有主题变量的自适应样式；不修改旧弹窗定位规则。
 - `db/schema.ts` / `drizzle/0002_calm_katie_power.sql`：只追加两个表，不重写既有迁移。

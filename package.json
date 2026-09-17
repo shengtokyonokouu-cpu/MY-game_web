@@ -10,7 +10,7 @@
     "build": "vinext build",
     "pages:build": "vinext build && node scripts/prepare-cloudflare-pages.mjs",
     "start": "vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs && node --experimental-strip-types --test tests/catalog-integrity.test.ts tests/application.test.ts tests/cloud-news.test.ts tests/multilingual.test.ts tests/ip-features.test.ts",
+    "test": "npm run build && node --test tests/rendered-html.test.mjs && node --experimental-strip-types --test tests/catalog-integrity.test.ts tests/application.test.ts tests/cloud-news.test.ts tests/multilingual.test.ts tests/ip-features.test.ts tests/http-cache.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "wrangler d1 migrations apply release-signal-accounts --remote",
     "typecheck": "tsc --noEmit",
