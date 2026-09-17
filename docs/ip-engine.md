@@ -70,6 +70,16 @@
 
 开发可用 npm run engine:dev 和 Wrangler 的 /__scheduled 本地测试入口；默认使用本地 D1，不将本地测试当作线上运行证据。
 
+### 自动调度验收与故障定位
+
+- 发布命令成功只证明配置已提交，不能证明 Cron 已运行。停止所有手动测试后，至少观察两个不同分钟的心跳增长，并核对正文、分析或扫描任务确实推进。
+- 用控制台的 Worker → Settings → Trigger events → 下一次执行时间链接查看 Cron events；在 Observability 查看 `scheduled` 调用。`IPEngine.jsrpc` 仅证明服务绑定被调用，单独出现时不能视为自动调度证据。
+- Cron 配置变更可能传播最多 15 分钟，新 Worker 的 Cron events 历史可能最多延迟 30 分钟。传播期间保持配置不变，结合 D1 心跳与实时日志核验，不反复部署定时规则。
+- 若配置存在但没有调用记录，先核对账号、生产环境、已注册的 `scheduled` 入口、D1 绑定和规则，再尝试一次等价规则的重新注册。本项目使用 `*/1 * * * *`，执行频率仍为每分钟；这不是对 Cloudflare 调度故障的通用修复保证。
+- 只改代码时可用 `wrangler versions upload --config wrangler.engine.jsonc` 和 `wrangler versions deploy <version>@100 --config wrangler.engine.jsonc`，避免不必要地改写触发器。只有规则变化时才运行 `wrangler triggers deploy --config wrangler.engine.jsonc`。
+- 调试不要开放匿名执行接口，不要用本机常驻循环伪装线上自动运行，也不要为读日志直接扩大凭据权限。CLI 没有历史日志读取权限时，可由账户所有者登录控制台后检查。
+- 若超过传播窗口仍没有自动调用，应保留健康状态为异常，记录规则更新时间、活跃版本、最后心跳和空事件记录，交由 Cloudflare 支持排查，或在取得用户同意后选择另一种后台调度方式。
+
 ## 上游技术依据
 
 - [Wikibase API](https://www.mediawiki.org/wiki/Wikibase/API)
