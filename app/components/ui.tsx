@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { CatalogGame } from "../lib/catalog";
 import { gameArticle } from "../lib/game-artwork";
 const paths: Record<string, ReactNode> = {
+  bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></>,
+  tag: <><path d="M3 3h8l10 10-8 8L3 11Z"/><circle cx="7.5" cy="7.5" r="1"/></>,
   discover: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
   calendar: <><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2"/></>,
   library: <><path d="M4 5h5v16H4zM9 5h5v16H9zM15 6l4-1 3 15-4 1zM5 9h3M10 9h3"/></>,

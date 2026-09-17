@@ -28,6 +28,10 @@ test("server-renders the Release Signal application", async () => {
   assert.match(html, /aria-label="游戏目录分页"/);
   assert.match(html, /我的游戏架/);
   assert.match(html, /设置与数据/);
+  assert.match(html, /IP 频道/);
+  assert.match(html, /我的关注/);
+  assert.match(html, /role="combobox"/);
+  assert.match(html, /通知中心/);
   assert.match(html, /切换为深色主题/);
   assert.match(html, /property="og:image"[^>]+content="https?:\/\/[^"]+\/og-light\.png"/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);

@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text, index } from "drizzle-orm/sqlite-core";
+import { integer, sqliteTable, text, index, primaryKey } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -28,3 +28,18 @@ export const authLimits = sqliteTable("auth_limits", {
   hits: integer("hits").notNull(),
   expiresAt: integer("expires_at").notNull(),
 }, (table) => [index("idx_auth_limits_expiry").on(table.expiresAt)]);
+
+export const ipSubscriptions = sqliteTable("ip_subscriptions", {
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  ipId: text("ip_id").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [primaryKey({ columns: [table.userId, table.ipId] })]);
+export const ipNotifications = sqliteTable("ip_notifications", {
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  articleId: text("article_id").notNull(),
+  article: text("article").notNull(),
+  ipIds: text("ip_ids").notNull(),
+  reason: text("reason").notNull(),
+  createdAt: integer("created_at").notNull(),
+  readAt: integer("read_at"),
+}, (table) => [primaryKey({ columns: [table.userId, table.articleId] }), index("idx_ip_notifications_user_created").on(table.userId, table.createdAt)]);

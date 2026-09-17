@@ -15,6 +15,13 @@
       "when": 1788656657366,
       "tag": "0001_puzzling_slyde",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789640717483,
+      "tag": "0002_calm_katie_power",
+      "breakpoints": true
     }
   ]
 }
