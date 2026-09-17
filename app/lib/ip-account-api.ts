@@ -1,5 +1,6 @@
 import { authenticate, hash, json, safeMutation, type AppEnv, type Database } from "./auth.ts";
 import { articleFranchises, franchiseById, majorNewsReason } from "./franchises.ts";
+import { registeredIP } from "./ip-repository.ts";
 import type { NewsArticle, NewsFeed } from "./news.ts";
 
 export type IPNotification = { id: string; article: NewsArticle; ipIds: string[]; reason: string; createdAt: number; readAt: number | null };
@@ -29,12 +30,12 @@ export async function collectIPNotifications(db: Database, owner: string, feed: 
   const follows = await subscriptions(db, owner); const cutoff = now - 30 * 86400000;
   const candidates = feed.items.filter((article) => {
     const published = Date.parse(article.publishedAt);
-    return published >= cutoff && published <= now && majorNewsReason(article) && articleFranchises(article).some((ip) => follows.some((follow) => follow.ipId === ip.id && published >= follow.createdAt));
+    return published >= cutoff && published <= now && majorNewsReason(article) && (article.ipIds || articleFranchises(article).map((ip) => ip.id)).some((id) => follows.some((follow) => follow.ipId === id && published >= follow.createdAt));
   });
   // A statement per candidate rechecks active subscriptions to close unsubscribe
   // races. Article IDs deduplicate cross-IP mentions and repeated polling.
   const statements = await Promise.all(candidates.slice(0, 240).map(async (article) => {
-    const ids = articleFranchises(article).map((ip) => ip.id);
+    const ids = article.ipIds || articleFranchises(article).map((ip) => ip.id);
     return db.prepare("INSERT INTO ip_notifications (user_id, article_id, article, ip_ids, reason, created_at) SELECT ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM ip_subscriptions WHERE user_id = ? AND ip_id IN (SELECT value FROM json_each(?)) AND created_at <= ?) ON CONFLICT(user_id, article_id) DO NOTHING")
       .bind(owner, await hash(article.id), JSON.stringify(article), JSON.stringify(ids), majorNewsReason(article), Date.parse(article.publishedAt), owner, JSON.stringify(ids), Date.parse(article.publishedAt));
   }));
@@ -60,7 +61,7 @@ export async function handleIPAccount(request: Request, env: AppEnv, news: () =>
   let body; try { body = await smallJSON(request); } catch { return json({ error: "请求格式不正确或超过 8 KB。" }, 400); }
   if (!body || typeof body !== "object") return json({ error: "请求格式不正确。" }, 400);
   if (!notifications) {
-    if (typeof body.ipId !== "string" || !franchiseById(body.ipId) || typeof body.following !== "boolean") return json({ error: "未知 IP 或订阅状态。" }, 400);
+    if (typeof body.ipId !== "string" || body.ipId.length > 100 || typeof body.following !== "boolean" || (!await registeredIP(db, body.ipId) && !franchiseById(body.ipId))) return json({ error: "未知 IP 或订阅状态。" }, 400);
     if (body.following) await db.prepare("INSERT INTO ip_subscriptions (user_id, ip_id, created_at) VALUES (?, ?, ?) ON CONFLICT(user_id, ip_id) DO NOTHING").bind(owner, body.ipId, Date.now()).run();
     else await db.prepare("DELETE FROM ip_subscriptions WHERE user_id = ? AND ip_id = ?").bind(owner, body.ipId).run();
   } else {

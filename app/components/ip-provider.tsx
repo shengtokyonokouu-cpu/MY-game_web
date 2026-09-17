@@ -6,6 +6,7 @@ import type { Account } from "../lib/auth";
 import type { IPAccountState } from "../lib/ip-account-api";
 import { useNewsFeed } from "../lib/use-news-feed";
 import { Dialog } from "./ui";
+import { useIPRegistry } from "../lib/use-ip-registry";
 
 type Session = { user: Account | null; csrf: string | null };
 const empty: IPAccountState = { following: [], notifications: [], unread: 0 };
@@ -36,11 +37,11 @@ function useIPStore(session: Session) {
   const follow = (ipId: string) => { if (!session.user) { setLoginPrompt(true); return; } void request("/api/subscriptions", "PUT", { ipId, following: !data.following.includes(ipId) }); };
   return { ...data, loading, busy, error, user: session.user, follow, retry: () => request("/api/subscriptions"), refreshNotifications: () => request("/api/notifications", "POST"), markRead: (ids?: string[]) => request("/api/notifications", "PATCH", ids ? { ids } : { all: true }), loginPrompt, setLoginPrompt };
 }
-type IPContextValue = ReturnType<typeof useIPStore> & { news: ReturnType<typeof useNewsFeed> };
+type IPContextValue = ReturnType<typeof useIPStore> & ReturnType<typeof useIPRegistry> & { news: ReturnType<typeof useNewsFeed> };
 const IPContext = createContext<IPContextValue | null>(null);
 export function useIP() { const value = useContext(IPContext); if (!value) throw new Error("IP provider missing"); return value; }
 // Mounted with the account ID as key: old requests/state cannot leak between accounts.
 export function IPProvider({ session, children }: { session: Session; children: ReactNode }) {
-  const store = useIPStore(session); const news = useNewsFeed();
-  return <IPContext.Provider value={{ ...store, news }}>{children}{store.loginPrompt && <Dialog title="登录后关注系列" onClose={() => store.setLoginPrompt(false)}><div className="ip-login"><p className="eyebrow">YOUR PERSONAL FEED</p><h1>让喜欢的系列来找你</h1><p>使用 GitHub 登录，即可跨设备同步关注，并在站内接收重大动态提醒。不会申请仓库权限。</p><a className="button primary" href="/api/auth/login">使用 GitHub 登录</a><button className="button" onClick={() => store.setLoginPrompt(false)}>继续浏览</button></div></Dialog>}</IPContext.Provider>;
+  const store = useIPStore(session); const news = useNewsFeed(); const registry = useIPRegistry();
+  return <IPContext.Provider value={{ ...store, ...registry, news }}>{children}{store.loginPrompt && <Dialog title="登录后关注系列" onClose={() => store.setLoginPrompt(false)}><div className="ip-login"><p className="eyebrow">YOUR PERSONAL FEED</p><h1>让喜欢的系列来找你</h1><p>使用 GitHub 登录，即可跨设备同步关注，并在站内接收重大动态提醒。不会申请仓库权限。</p><a className="button primary" href="/api/auth/login">使用 GitHub 登录</a><button className="button" onClick={() => store.setLoginPrompt(false)}>继续浏览</button></div></Dialog>}</IPContext.Provider>;
 }

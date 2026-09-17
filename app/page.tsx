@@ -13,7 +13,6 @@ import { AccountPanel } from "./components/account-panel";
 import { usePersonalLibrary } from "./lib/use-personal-library";
 import { IPProvider, useIP } from "./components/ip-provider";
 import { IPDirectory, IPFacets, IPHub, IPNavigation, IPTags, IPSearch, PopularIPs, FollowingFeed, NotificationCenter } from "./components/ip-components";
-import { franchiseById, gameFranchises } from "./lib/franchises";
 
 type View = "discover" | "calendar" | "library" | "news" | "settings" | "ips" | "ip" | "notifications";
 const navigation: { id: View; label: string; icon: string }[] = [{ id: "discover", label: "发现游戏", icon: "discover" }, { id: "calendar", label: "发售日历", icon: "calendar" }, { id: "library", label: "我的游戏架", icon: "library" }, { id: "news", label: "游戏新闻", icon: "news" }, { id: "ips", label: "IP 频道", icon: "tag" }];
@@ -31,7 +30,7 @@ function Workspace({ cloud }: { cloud: ReturnType<typeof usePersonalLibrary> }) 
   const [view, setView] = useState<View>("discover");
   const [feed, setFeed] = useState<CatalogFeed>(initialFeed);
   const [syncState, setSyncState] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const ipStore = useIP();
+  const ipStore = useIP(); const { franchiseById, gameFranchises } = ipStore;
   const [ipFilter, setIPFilter] = useState("all");
   const [hubId, setHubId] = useState("");
   const [homeTab, setHomeTab] = useState("discover");
@@ -68,7 +67,7 @@ function Workspace({ cloud }: { cloud: ReturnType<typeof usePersonalLibrary> }) 
       setDensity(preferences.density === "compact" ? "compact" : "comfortable");
       const params = new URLSearchParams(location.search); const wanted = params.get("view");
       if (["discover", "calendar", "library", "news", "settings", "ips", "ip", "notifications"].includes(wanted || "")) setView(wanted as View);
-      setQuery(params.get("q") || ""); setHubId(params.get("ip") || ""); setHomeTab(params.get("tab") === "following" ? "following" : "discover"); setIPFilter(franchiseById(params.get("series") || "") ? params.get("series")! : "all"); setPlatform(params.get("platform") || "all"); const id = params.get("game");
+      setQuery(params.get("q") || ""); setHubId(params.get("ip") || ""); setHomeTab(params.get("tab") === "following" ? "following" : "discover"); setIPFilter(/^[a-z0-9-]{1,100}$/.test(params.get("series") || "") ? params.get("series")! : "all"); setPlatform(params.get("platform") || "all"); const id = params.get("game");
       if (id) setSelected(initialCatalog.find((game) => game.id === id) ?? null);
       if (params.has("auth_error")) setToast("GitHub 登录未完成，请在账号设置中重试。");
       setRouteReady(true);
@@ -126,7 +125,7 @@ function Workspace({ cloud }: { cloud: ReturnType<typeof usePersonalLibrary> }) 
       return Number(!!b.featured) - Number(!!a.featured) || (b.releaseDate || "").localeCompare(a.releaseDate || "");
     });
   }, [view, library, shelfFilter, searchable, status, platform, genre, region, query, sort]);
-  const filtered = useMemo(() => beforeIP.filter((game) => ipFilter === "all" || gameFranchises(game).some((ip) => ip.id === ipFilter)), [beforeIP, ipFilter]);
+  const filtered = useMemo(() => beforeIP.filter((game) => ipFilter === "all" || gameFranchises(game).some((ip) => ip.id === ipFilter)), [beforeIP, ipFilter, gameFranchises]);
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)); const currentPage = Math.min(page, pages); const visible = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
   const visibleIds = visible.map((game) => game.id).join(",");
   useEffect(() => {

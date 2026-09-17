@@ -2,7 +2,7 @@ import type { CatalogGame } from "./catalog.ts";
 import { identityNames, searchTokensMatch } from "./game-names.ts";
 import type { NewsArticle } from "./news.ts";
 
-export type Franchise = { id: string; name: string; ja: string; en: string; description: string; aliases: string[]; sourceUrl: string; color: string };
+export type Franchise = { id: string; name: string; ja: string; en: string; description: string; aliases: string[]; sourceUrl: string; color: string; entityId?: string; version?: number; promotedAt?: number; updatedAt?: number; newsCount?: number; followerCount?: number; recentCount?: number; previousCount?: number; rising?: boolean; discovered?: boolean; evidence?: unknown[] };
 // Editorial taxonomy, not game identity. A mention may associate several IPs;
 // it never merges games, certifies a release, or invents a localized title.
 export const franchises: Franchise[] = [
@@ -15,7 +15,7 @@ export const franchises: Franchise[] = [
   { id: "final-fantasy", name: "最终幻想系列", ja: "ファイナルファンタジー", en: "Final Fantasy", description: "最终幻想系列、重制版本及新作的统一入口。", aliases: ["最终幻想", "最終幻想", "太空战士", "太空戰士", "ファイナルファンタジー", "Final Fantasy", "FFVII", "FFXIV", "FFXVI", "FF7", "FF14", "FF16"], sourceUrl: "https://jp.finalfantasy.com/", color: "blue" },
   { id: "apothecary-diaries", name: "药屋少女系列", ja: "薬屋のひとりごと", en: "The Apothecary Diaries", description: "关注《药屋少女的呢喃／药师少女的独语》的游戏化动态。频道中文名为站内归类名，作品名称保留来源原文。", aliases: ["薬屋のひとりごと", "药屋少女的呢喃", "藥屋少女的呢喃", "药师少女的独语", "藥師少女的獨語", "The Apothecary Diaries", "Kusuriya no Hitorigoto", "真假皇弟", "偽りの皇弟"], sourceUrl: "https://www.gamecity.ne.jp/kusuriyanohitorigoto/jp/", color: "green" },
 ];
-export const franchiseById = (id: string) => franchises.find((ip) => ip.id === id);
+export const franchiseById = (id: string, registry: Franchise[] = franchises) => registry.find((ip) => ip.id === id);
 function normalized(value: string) { return value.normalize("NFKC").replace(/[éÉ]/g, "e").toLowerCase().replace(/[’']/g, "").replace(/[‐‑–—]/g, "-"); }
 const aliasPatterns = new Map<string, RegExp>();
 export function mentionsAlias(text: string, alias: string) {
@@ -25,22 +25,35 @@ export function mentionsAlias(text: string, alias: string) {
   if (!pattern) { const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+"); pattern = new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`, "i"); aliasPatterns.set(needle, pattern); }
   return pattern.test(haystack);
 }
-export function matchFranchises(text: string) { return franchises.filter((ip) => ip.aliases.some((alias) => mentionsAlias(text, alias))); }
-const gameMatches = new WeakMap<CatalogGame, Franchise[]>();
-const articleMatches = new WeakMap<NewsArticle, Franchise[]>();
-export function gameFranchises(game: CatalogGame) { let matches = gameMatches.get(game); if (!matches) { matches = matchFranchises(identityNames(game).join("\n")); gameMatches.set(game, matches); } return matches; }
-export function articleFranchises(article: NewsArticle) { let matches = articleMatches.get(article); if (!matches) { matches = matchFranchises(`${article.title}\n${article.excerpt}`); articleMatches.set(article, matches); } return matches; }
+export function matchFranchises(text: string, registry: Franchise[] = franchises) { return registry.filter((ip) => ip.aliases.some((alias) => mentionsAlias(text, alias))); }
+// Cache by immutable dictionary snapshot as well as article/game identity. A
+// refreshed registry cannot reuse matches from an older dictionary version.
+const indexes = new WeakMap<Franchise[], { games: WeakMap<CatalogGame, Franchise[]>; articles: WeakMap<NewsArticle, Franchise[]> }>();
+function index(registry: Franchise[]) { let value = indexes.get(registry); if (!value) { value = { games: new WeakMap(), articles: new WeakMap() }; indexes.set(registry, value); } return value; }
+export function gameFranchises(game: CatalogGame, registry: Franchise[] = franchises) { const cache = index(registry).games; let matches = cache.get(game); if (!matches) { matches = matchFranchises(identityNames(game).join("\n"), registry); cache.set(game, matches); } return matches; }
+export function articleFranchises(article: NewsArticle, registry: Franchise[] = franchises) { const cache = index(registry).articles; let matches = cache.get(article); if (!matches) { matches = article.ipIds ? registry.filter((ip) => article.ipIds!.includes(ip.id)) : matchFranchises(article.title + "\n" + article.excerpt, registry); cache.set(article, matches); } return matches; }
 const emptyGames: CatalogGame[] = [];
-const suggestionCache = new WeakMap<CatalogGame[], Map<string, Franchise[]>>();
-export function suggestFranchises(query: string, games: CatalogGame[] = emptyGames) {
+const suggestionIndexes = new WeakMap<Franchise[], WeakMap<CatalogGame[], Map<string, Franchise[]>>>();
+export function suggestFranchises(query: string, games: CatalogGame[] = emptyGames, registry: Franchise[] = franchises) {
   if (query.trim().length < 2) return [];
-  let cache = suggestionCache.get(games); if (!cache) { cache = new Map(); suggestionCache.set(games, cache); }
+  let dictionary = suggestionIndexes.get(registry); if (!dictionary) { dictionary = new WeakMap(); suggestionIndexes.set(registry, dictionary); }
+  let cache = dictionary.get(games); if (!cache) { cache = new Map(); dictionary.set(games, cache); }
   const hit = cache.get(query); if (hit) return hit;
-  const direct = matchFranchises(query);
-  const partial = franchises.filter((ip) => [ip.name, ip.en, ip.ja, ...ip.aliases].some((name) => normalized(name).includes(normalized(query.trim()))));
-  const related = games.filter((game) => identityNames(game).some((name) => searchTokensMatch(name, query))).flatMap(gameFranchises);
+  const direct = matchFranchises(query, registry);
+  const partial = registry.filter((ip) => [ip.name, ip.en, ip.ja, ...ip.aliases].some((name) => normalized(name).includes(normalized(query.trim()))));
+  const related = games.filter((game) => identityNames(game).some((name) => searchTokensMatch(name, query))).flatMap((game) => gameFranchises(game, registry));
   const result = [...new Map([...direct, ...partial, ...related].map((ip) => [ip.id, ip])).values()].slice(0, 6);
   if (cache.size >= 20) cache.delete(cache.keys().next().value!); cache.set(query, result); return result;
+}
+export function franchiseIndex(registry: Franchise[]) {
+  return {
+    franchises: registry,
+    franchiseById: (id: string) => franchiseById(id, registry),
+    gameFranchises: (game: CatalogGame) => gameFranchises(game, registry),
+    articleFranchises: (article: NewsArticle) => articleFranchises(article, registry),
+    suggestFranchises: (query: string, games?: CatalogGame[]) => suggestFranchises(query, games, registry),
+    matchesNewsQuery: (article: NewsArticle, query: string, games?: CatalogGame[]) => matchesNewsQuery(article, query, games, registry),
+  };
 }
 export type NewsCategory = "latest" | "video" | "review" | "release";
 export const categoryLabels: Record<NewsCategory, string> = { latest: "最新动态", video: "预告片 / 视频", review: "评测 / 攻略", release: "发售变动" };
@@ -71,10 +84,10 @@ export function articlePlatforms(article: NewsArticle) {
   if (/Xbox/i.test(text)) result.push("Xbox");
   return result;
 }
-export function matchesNewsQuery(item: NewsArticle, query: string, games: CatalogGame[] = emptyGames) {
+export function matchesNewsQuery(item: NewsArticle, query: string, games: CatalogGame[] = emptyGames, registry: Franchise[] = franchises) {
   if (!query.trim() || searchTokensMatch(`${item.title} ${item.excerpt} ${item.sourceName}`, query)) return true;
-  const related = suggestFranchises(query, games);
-  return articleFranchises(item).some((ip) => related.some((candidate) => candidate.id === ip.id));
+  const related = suggestFranchises(query, games, registry);
+  return articleFranchises(item, registry).some((ip) => related.some((candidate) => candidate.id === ip.id));
 }
 export function ipTimeline(games: CatalogGame[], now = Date.now()) {
   const today = new Date(now).toISOString().slice(0, 10);

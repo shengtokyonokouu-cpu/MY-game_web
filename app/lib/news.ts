@@ -3,7 +3,7 @@ import { DOMParser, parseHTML } from "linkedom";
 import { newsSources, type NewsSource } from "./news-sources.ts";
 export { newsSources } from "./news-sources.ts";
 export type { NewsSource } from "./news-sources.ts";
-export type NewsArticle = { id: string; title: string; url: string; publishedAt: string; excerpt: string; sourceId: string; sourceName: string; sourceKind: "official" | "media"; topic: "news" | "interview" | "rumor"; language: string };
+export type NewsArticle = { id: string; title: string; url: string; publishedAt: string; excerpt: string; sourceId: string; sourceName: string; sourceKind: "official" | "media"; topic: "news" | "interview" | "rumor"; language: string; ipIds?: string[] };
 export type NewsFeed = { items: NewsArticle[]; fetchedAt: string; sources: { id: string; name: string; ok: boolean; count: number }[]; stale?: boolean };
 
 function plainText(html: string) { const { document } = parseHTML(`<html><body>${html}</body></html>`); document.querySelectorAll("script,style").forEach((node) => node.remove()); return document.body.textContent.replace(/\s+/g, " ").trim(); }

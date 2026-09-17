@@ -3,14 +3,14 @@ import { useMemo, useState } from "react";
 import { Icon } from "./ui";
 import { NewsView as SourceArchive } from "./views";
 import type { CatalogGame } from "../lib/catalog";
-import { articleFranchises, articlePlatforms, franchises, matchesNewsQuery } from "../lib/franchises";
+import { articlePlatforms } from "../lib/franchises";
 import { IPNewsFeed, PopularIPs } from "./ip-components";
 import { useIP } from "./ip-provider";
 
 export function LiveNewsView({ query, catalog, onOpen, ipFilter, onIPFilter, platform, onPlatform }: { query: string; catalog: CatalogGame[]; onOpen: (game: CatalogGame) => void; ipFilter: string; onIPFilter: (id: string) => void; platform: string; onPlatform: (value: string) => void }) {
-  const { news: { feed, state, refresh } } = useIP();
+  const { news: { feed, state, refresh }, articleFranchises, franchises, matchesNewsQuery } = useIP();
   const [filter, setFilter] = useState("all"); const [source, setSource] = useState("all"); const [language, setLanguage] = useState("all"); const [archive, setArchive] = useState(false);
-  const beforeIP = useMemo(() => (feed?.items || []).filter((item) => (language === "all" || item.language === language) && (source === "all" || item.sourceId === source) && (filter === "all" || filter === item.sourceKind || filter === item.topic) && (platform === "all" || articlePlatforms(item).includes(platform)) && matchesNewsQuery(item, query, catalog)), [feed, filter, source, query, language, platform, catalog]);
+  const beforeIP = useMemo(() => (feed?.items || []).filter((item) => (language === "all" || item.language === language) && (source === "all" || item.sourceId === source) && (filter === "all" || filter === item.sourceKind || filter === item.topic) && (platform === "all" || articlePlatforms(item).includes(platform)) && matchesNewsQuery(item, query, catalog)), [feed, filter, source, query, language, platform, catalog, matchesNewsQuery]);
   const items = beforeIP.filter((item) => ipFilter === "all" || articleFranchises(item).some((ip) => ip.id === ipFilter));
   const facets = franchises.map((ip) => ({ ...ip, count: beforeIP.filter((item) => articleFranchises(item).some((match) => match.id === ip.id)).length })).filter((ip) => ip.count);
   return <><div className="page-heading"><div><p className="eyebrow">LIVE GAME NEWS</p><h1>游戏新闻</h1><p>聚合中日英官方公告与媒体报道，每 5 分钟检查更新。</p></div><button className="button" onClick={() => void refresh()} disabled={state === "loading"}><Icon name="refresh" className={state === "loading" ? "spin" : ""}/>{state === "loading" ? "正在更新…" : "刷新新闻"}</button></div>
