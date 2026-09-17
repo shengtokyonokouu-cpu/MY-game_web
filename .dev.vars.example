@@ -1,0 +1,5 @@
+# Local-only OAuth credentials (never commit real values).
+# Production secrets belong in Cloudflare Pages > release-signal > Settings > Variables and Secrets.
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+PUBLIC_ORIGIN=https://release-signal.pages.dev
