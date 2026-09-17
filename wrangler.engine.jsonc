@@ -6,7 +6,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,
   "preview_urls": false,
-  "triggers": { "crons": ["*/1 * * * *"] },
+  "triggers": { "crons": [] },
+  "durable_objects": { "bindings": [{ "name": "CLOCK", "class_name": "IPEngineClock" }] },
+  "migrations": [{ "tag": "ip-clock-v1", "new_sqlite_classes": ["IPEngineClock"] }],
   "services": [{ "binding": "ENGINE", "service": "release-signal-ip-engine", "entrypoint": "IPEngine" }],
   "d1_databases": [{ "binding": "DB", "database_name": "release-signal-accounts", "database_id": "9692c348-0822-4344-ada2-69440482ad97", "migrations_dir": "drizzle" }],
   "observability": { "enabled": true, "head_sampling_rate": 0.1 }

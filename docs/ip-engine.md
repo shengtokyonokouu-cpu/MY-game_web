@@ -10,7 +10,7 @@
 
 ## 流程
 
-1. 独立 Cloudflare Worker 每分钟调度，8 个中/日/英来源每 15 分钟进入一次抓取队列。
+1. 独立 Cloudflare Worker 通过单个 SQLite-backed Durable Object 持久化闹钟每分钟调度，8 个中/日/英来源每 15 分钟进入一次抓取队列。首次只需私有维护入口设置闹钟；此后不依赖浏览器、本机进程或 Cron 投递。
 2. RSS 文章以规范 URL 唯一归档；标题与摘要变化进入增量分析任务。正文使用独立任务抓取，仅访问固定来源域名、不跟随重定向、遵守 robots、超时和体积限制。
 3. 从标题和正文抽取书名号/日文引号作品名、标题主体、英文专名及 Project/Codename 代号，每篇最多 16 个候选。平台泛词被排除；重复候选与重复文章去重。
 4. Wikidata 搜索只接受精确标签/别名匹配。类型必须是游戏系列，或有明确游戏系列组成关系的跨媒体 IP。单款游戏通过 P179 关联系列；系列通过 P8345 关联主 IP，跨媒体 IP 通过 P527 的游戏系列证明归属。电影、人物、同名词、模糊匹配与多个不一致父级不自动通过。
@@ -62,20 +62,36 @@
 
 1. 运行类型检查及测试。生成/核对增量迁移；已经应用的 0000–0003 不可重写。
 2. npm run db:migrate 应用到现有游戏数据库。
-3. npm run engine:deploy 发布 wrangler.engine.jsonc 中的独立定时 Worker；首次 Cron 在 Cloudflare 传播后自行初始化种子和任务。
+3. npm run engine:deploy 发布 wrangler.engine.jsonc 中的独立 Worker 和 ip-clock-v1 的 SQLite Durable Object 类迁移。首次使用下述私有维护流程设置闹钟；之后部署保留原实例和闹钟，不需要反复启动。
 4. npm run pages:build，沿用现有 Pages 项目发布。域名仍为 release-signal.pages.dev。
 5. 核查 /api/ip-engine 心跳、归档数、待处理数；用 wrangler tail --config wrangler.engine.jsonc 看失败原因。不要开放匿名“运行引擎”接口。
 
 手动维护已核验词典时调用服务端 saveFranchise，它把版本更新与扫描入队放在同一事务；不要只直接改 JSON 而绕过版本/扫描。当前没有公开管理员写入入口。
 
-开发可用 npm run engine:dev 和 Wrangler 的 /__scheduled 本地测试入口；默认使用本地 D1，不将本地测试当作线上运行证据。
+开发可用 npm run engine:dev 和 Wrangler 的 /__scheduled 本地测试入口；默认使用本地 D1 和本地闹钟，不将本地测试当作线上运行证据。
+
+### 持久化闹钟与私有维护
+
+2026-09-17 的生产排查发现：每分钟 Cron 规则存在、scheduled 入口已注册，但超过传播窗口后仍没有调用记录与心跳；重新注册等价规则后也未观察到执行。根因尚未获 Cloudflare 确认，不能断言是语法问题。现改用 Durable Objects Alarms，停用原 Cron，避免日后恢复投递导致双重调度。
+
+仅使用固定名称 primary 的一个实例，不按用户或文章创建对象。每轮最多两项工作并发；开始网络处理前先持久化下一次闹钟，完成后以本轮开始时间加 60 秒安排下一轮。超长单轮完成后至少间隔 1 秒，没有补跑全部错过分钟的循环；重试沿用 D1 租约与退避。调用级失败不会取消未来闹钟。暂停标志持久化，正在执行的单轮会结束，但不会重新启动。
+
+SQLite Durable Objects 可用于 Workers Free；不会开启付费套餐。只有一个闹钟和最后结果，约每天 1,440 次自动唤醒，外加现有后台任务调用。免费请求、读写、时长和账户共享配额仍适用，不能承诺无限容量；不得为绕开配额自动升级。
+
+生产维护步骤（需要本机已登录 Wrangler，配置不含密钥）：
+
+1. 运行 npm run engine:admin。它只启动临时的 Wrangler remote-dev 包装器，通过账户内 Service Binding 访问生产 IPEngine，不部署公开管理页面。
+2. 首次启动：向工具输出的本机地址请求 /__scheduled?cron=start；状态检查用 cron=status，暂停用 cron=pause。HTTP fetch 本身始终返回 404，只有 Wrangler 的本地定时测试入口可分派这些维护操作。
+3. 日志返回 enabled、nextAt 和 lastRun。start 只安排未来闹钟，不抓取内容、不改心跳；重复 start 不推迟已有闹钟。之后关闭 remote-dev 工具，验证至少两次真实 alarm 日志与心跳增长。
+
+维护配置没有 Cron、D1 或 Durable Object 绑定；它只调用已经部署的生产服务，避免误将预览实例当成生产实例。暂停不会删除历史资讯、候选、频道或订阅。
 
 ### 自动调度验收与故障定位
 
-- 发布命令成功只证明配置已提交，不能证明 Cron 已运行。停止所有手动测试后，至少观察两个不同分钟的心跳增长，并核对正文、分析或扫描任务确实推进。
+- 发布命令成功只证明配置已提交，不能证明自动调度已运行。停止维护工具后，至少观察两个不同分钟的心跳增长，并核对正文、分析或扫描任务确实推进；当前应看到真实 alarm 调用和 IP automatic alarm completed 日志。
 - 用控制台的 Worker → Settings → Trigger events → 下一次执行时间链接查看 Cron events；在 Observability 查看 `scheduled` 调用。`IPEngine.jsrpc` 仅证明服务绑定被调用，单独出现时不能视为自动调度证据。
 - Cron 配置变更可能传播最多 15 分钟，新 Worker 的 Cron events 历史可能最多延迟 30 分钟。传播期间保持配置不变，结合 D1 心跳与实时日志核验，不反复部署定时规则。
-- 若配置存在但没有调用记录，先核对账号、生产环境、已注册的 `scheduled` 入口、D1 绑定和规则，再尝试一次等价规则的重新注册。本项目使用 `*/1 * * * *`，执行频率仍为每分钟；这不是对 Cloudflare 调度故障的通用修复保证。
+- 若旧 Cron 配置存在但没有调用记录，先核对账号、生产环境、已注册的 `scheduled` 入口、D1 绑定和规则，再尝试一次等价规则的重新注册。本次试过 `*/1 * * * *`，频率仍为每分钟，但未恢复执行；现配置 crons=[]，不再依赖 Cron。
 - 只改代码时可用 `wrangler versions upload --config wrangler.engine.jsonc` 和 `wrangler versions deploy <version>@100 --config wrangler.engine.jsonc`，避免不必要地改写触发器。只有规则变化时才运行 `wrangler triggers deploy --config wrangler.engine.jsonc`。
 - 调试不要开放匿名执行接口，不要用本机常驻循环伪装线上自动运行，也不要为读日志直接扩大凭据权限。CLI 没有历史日志读取权限时，可由账户所有者登录控制台后检查。
 - 若超过传播窗口仍没有自动调用，应保留健康状态为异常，记录规则更新时间、活跃版本、最后心跳和空事件记录，交由 Cloudflare 支持排查，或在取得用户同意后选择另一种后台调度方式。
@@ -86,5 +102,7 @@
 - [游戏系列类型 Q7058673](https://www.wikidata.org/wiki/Q7058673)
 - [游戏实体属性与 P179](https://www.wikidata.org/wiki/Wikidata:WikiProject_Video_games/Properties)
 - [Cloudflare Cron Triggers](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
+- [Durable Objects Alarms](https://developers.cloudflare.com/durable-objects/api/alarms/)
+- [SQLite Durable Objects 免费套餐与配额](https://developers.cloudflare.com/durable-objects/platform/pricing/)
 - [服务绑定与 RPC](https://developers.cloudflare.com/workers/runtime-apis/bindings/service-bindings/rpc/)
 - [Workers 运行与免费套餐限制](https://developers.cloudflare.com/workers/platform/limits/)
