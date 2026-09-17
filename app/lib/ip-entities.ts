@@ -25,13 +25,21 @@ function names(entity: Entity) { const shared = entity.labels?.mul?.value || "";
 function aliases(entity: Entity) { return [...new Set(languages.flatMap((l) => [entity.labels?.[l]?.value || "", ...(entity.aliases?.[l] || []).map((a) => a.value)]).filter((a) => a.length >= 3 && a.length <= 100 && !ignored.test(a)))].slice(0, 80); }
 function claims(entity: Entity, property: string) { return (entity.claims?.[property] || []).filter((v) => v.rank !== "deprecated").map((v) => v.mainsnak?.datavalue?.value?.id).filter((v): v is string => !!v && /^Q\d+$/.test(v)); }
 export type EntityClient = (params: Record<string, string>) => Promise<unknown>;
+export class EntityBackoff extends Error {
+  retryAfter: number;
+  constructor(message: string, retryAfter = 300000) { super(message); this.name = "EntityBackoff"; this.retryAfter = retryAfter; }
+}
 export const wikidataClient: EntityClient = async (params) => {
   const url = new URL("https://www.wikidata.org/w/api.php");
   url.search = new URLSearchParams({ ...params, format: "json", maxlag: "5" }).toString();
   const response = await fetch(url, { redirect: "manual", headers: { "User-Agent": "ReleaseSignal/3.0 (https://release-signal.pages.dev; read-only IP classification)", Accept: "application/json" }, signal: AbortSignal.timeout(12000) });
+  const retryAfter = Math.min(3600000, Math.max(60000, (Number(response.headers.get("Retry-After")) || 300) * 1000));
+  if ([429, 502, 503, 504].includes(response.status)) throw new EntityBackoff("Wikidata HTTP " + response.status, retryAfter);
   if (!response.ok) throw new Error("Wikidata HTTP " + response.status);
   const text = await boundedText(response, 1_500_000);
-  const data = JSON.parse(text); if (data.error) throw new Error("Wikidata " + String(data.error.code));
+  const data = JSON.parse(text);
+  if (data.error?.code === "maxlag" || data.error?.code === "ratelimited") throw new EntityBackoff("Wikidata " + String(data.error.code), retryAfter);
+  if (data.error) throw new Error("Wikidata " + String(data.error.code));
   return data;
 };
 export async function boundedText(response: Response, max: number) {

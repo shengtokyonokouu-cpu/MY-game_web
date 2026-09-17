@@ -1,6 +1,6 @@
 import { hash, type Database, type Prepared } from "./auth.ts";
 import { mentionsAlias, type Franchise } from "./franchises.ts";
-import { extractEntities, normalizeEntity, resolveEntity, boundedText, type EntityEvidence } from "./ip-entities.ts";
+import { extractEntities, normalizeEntity, resolveEntity, boundedText, EntityBackoff, type EntityEvidence } from "./ip-entities.ts";
 import { batches, rows, stateStatement, stateValue, jobStatement, readRegistry, seedRegistry } from "./ip-repository.ts";
 import { parseNews, type NewsArticle } from "./news.ts";
 import { newsSources } from "./news-sources.ts";
@@ -206,6 +206,7 @@ async function processJob(db: Database, job: Job, now: number) {
     const candidate = await db.prepare("SELECT name,language FROM ip_candidates WHERE key=?").bind(job.target).first<{ name: string; language: string }>();
     if (candidate) {
       const resolved = await resolveEntity(candidate.name, candidate.language, undefined, now);
+      await stateStatement(db, "entity-service", { ok: true, retryAt: 0 }, Date.now()).run();
       await db.prepare("UPDATE ip_candidates SET status=?,entity_id=?,evidence=? WHERE key=?")
         .bind(resolved ? "verified" : "unresolved", resolved?.entityId || null, resolved ? JSON.stringify(resolved) : null, job.target).run();
       if (resolved) {
@@ -220,9 +221,16 @@ async function processJob(db: Database, job: Job, now: number) {
 }
 export async function runEngineJob(db: Database, kind: string, now = Date.now()) {
   if (kind === "promote") { await promoteCandidates(db, now); return true; }
+  if (kind === "resolve") {
+    const health = await stateValue<{ retryAt: number }>(db, "entity-service");
+    if (health && health.retryAt > now) return false;
+  }
   const job = await claimJob(db, kind, now); if (!job) return false;
   try { await processJob(db, job, now); }
-  catch (error) { console.error("IP job failed", job.kind, job.id, String(error)); await finishJob(db, job, Date.now(), error); }
+  catch (error) {
+    if (error instanceof EntityBackoff) await stateStatement(db, "entity-service", { ok: false, retryAt: Date.now() + error.retryAfter }, Date.now()).run();
+    console.error("IP job failed", job.kind, job.id, String(error)); await finishJob(db, job, Date.now(), error);
+  }
   return true;
 }
 export async function scheduleEngine(db: Database, now = Date.now()) {

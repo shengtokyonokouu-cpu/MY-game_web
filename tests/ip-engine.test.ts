@@ -3,13 +3,26 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync, readdirSync } from "node:fs";
 import type { Database, Prepared } from "../app/lib/auth.ts";
-import { extractEntities, resolveEntity, type EntityEvidence } from "../app/lib/ip-entities.ts";
+import { extractEntities, resolveEntity, wikidataClient, EntityBackoff, type EntityEvidence } from "../app/lib/ip-entities.ts";
 import { claimJob, ingestArticle, promoteCandidates, saveFranchise, scanBatch, robotsAllowed, runEngineJob } from "../app/lib/ip-engine.ts";
-import { readRegistry, archivedNews, rows } from "../app/lib/ip-repository.ts";
+import { readRegistry, archivedNews, rows, stateStatement } from "../app/lib/ip-repository.ts";
 import { articleFranchises, gameFranchises, type Franchise } from "../app/lib/franchises.ts";
 import { curatedGames } from "../app/lib/catalog.ts";
 import type { NewsArticle } from "../app/lib/news.ts";
 const now = Date.parse("2026-09-17T09:00:00Z");
+test("Wikidata maxlag uses Cloudflare-compatible fetch and a shared cooldown without dropping candidates", async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = async (_url, init) => { assert.equal(init?.redirect, "manual"); return Response.json({ error: { code: "maxlag" } }, { headers: { "Retry-After": "120" } }); };
+    await assert.rejects(wikidataClient({ action: "wbsearchentities", search: "Test Saga", language: "en" }), (error) => error instanceof EntityBackoff && error.retryAfter === 120000);
+  } finally { globalThis.fetch = original; }
+  const { db, sqlite } = database();
+  await stateStatement(db, "entity-service", { ok: false, retryAt: now + 120000 }, now).run();
+  await db.prepare("INSERT INTO ip_jobs (id,kind,target,available_at,updated_at) VALUES ('resolve:test','resolve','test',?,?)").bind(now, now).run();
+  assert.equal(await runEngineJob(db, "resolve", now), false);
+  assert.equal((await db.prepare("SELECT attempts FROM ip_jobs WHERE id='resolve:test'").first<{ attempts: number }>())?.attempts, 0);
+  sqlite.close();
+});
 function database() {
   const sqlite = new DatabaseSync(":memory:"); sqlite.exec("PRAGMA foreign_keys=ON");
   const dir = new URL("../drizzle/", import.meta.url);

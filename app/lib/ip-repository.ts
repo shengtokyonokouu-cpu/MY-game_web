@@ -62,6 +62,7 @@ export async function archivedNews(db: Database, ipId?: string, limit = 300, off
 export async function engineStatus(db: Database) {
   const totals = await db.prepare("SELECT (SELECT COUNT(*) FROM ip_registry) AS channels,(SELECT COUNT(*) FROM ip_articles) AS articles,(SELECT COUNT(*) FROM ip_articles WHERE body_status='complete') AS bodies,(SELECT COUNT(*) FROM ip_articles WHERE body_status='blocked') AS blockedBodies,(SELECT COUNT(*) FROM ip_candidates WHERE status='pending') AS candidates,(SELECT COUNT(*) FROM ip_candidates WHERE status='verified') AS verified,(SELECT COUNT(*) FROM ip_jobs WHERE state IN ('pending','running')) AS pendingJobs,(SELECT COUNT(*) FROM ip_jobs WHERE state='failed') AS failedJobs").first();
   const heartbeat = await stateValue<{ at: number; error?: string }>(db, "heartbeat");
+  const entityService = await stateValue<{ ok: boolean; retryAt: number }>(db, "entity-service");
   const scans = await rows<{ target: string; cursor: number; state: string; version: number }>(db, "SELECT target,cursor,state,version FROM ip_jobs WHERE kind='scan' AND state!='done' ORDER BY updated_at DESC LIMIT 10", ["target", "cursor", "state", "version"]);
-  return { ...totals, heartbeat: heartbeat?.at || null, healthy: !!heartbeat && Date.now() - heartbeat.at < 10 * 60000, scans, threshold: { articles: 6, sources: 2, windowHours: 24 }, mode: "rule-ner+wikidata-P179" };
+  return { ...totals, heartbeat: heartbeat?.at || null, healthy: !!heartbeat && Date.now() - heartbeat.at < 10 * 60000, entityService, scans, threshold: { articles: 6, sources: 2, windowHours: 24 }, mode: "rule-ner+wikidata" };
 }

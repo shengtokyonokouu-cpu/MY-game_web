@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { franchises as bootstrap, franchiseIndex, type Franchise } from "./franchises";
 import type { NewsArticle } from "./news";
-export type EngineStatus = { channels: number; articles: number; bodies: number; candidates: number; verified: number; pendingJobs: number; failedJobs: number; healthy: boolean; heartbeat: number | null };
+export type EngineStatus = { channels: number; articles: number; bodies: number; candidates: number; verified: number; pendingJobs: number; failedJobs: number; healthy: boolean; heartbeat: number | null; entityService?: { ok: boolean; retryAt: number } | null };
 export function useIPRegistry() {
   const [items, setItems] = useState<Franchise[]>(bootstrap); const [engine, setEngine] = useState<EngineStatus | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
