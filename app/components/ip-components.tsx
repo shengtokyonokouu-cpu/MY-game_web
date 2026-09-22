@@ -20,7 +20,9 @@ export function IPLink({ ip }: { ip: Franchise }) {
 export function IPBadge({ ip }: { ip: Franchise }) { return <>{ip.discovered && <small className="ip-trend new">新识别 IP</small>}{ip.rising && <small className="ip-trend rising">飙升 IP</small>}</>; }
 function sortedIPs(items: Franchise[], sort: string) {
   const field = sort === "games" ? "gameCount" : sort === "updated" ? "updatedAt" : "newsCount";
-  return [...items].sort((a, b) => (b[field] || 0) - (a[field] || 0) || a.name.localeCompare(b.name));
+  // Host-default collation differs between Cloudflare and the user's browser;
+  // use a deterministic tie-break so the initial HTML hydrates without errors.
+  return [...items].sort((a, b) => (b[field] || 0) - (a[field] || 0) || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 function IPSort({ value, change }: { value: string; change: (value: string) => void }) { return <label className="ip-sort">系列排序 <select value={value} onChange={(e) => change(e.target.value)}><option value="news">资讯量</option><option value="games">作品数量</option><option value="updated">最近更新</option></select></label>; }
 export function FollowIP({ ip, compact = false }: { ip: Franchise; compact?: boolean }) {
