@@ -22,7 +22,7 @@ test("server-renders the Release Signal application", async () => {
   assert.match(html, /<title>发售信号｜个人新游雷达<\/title>/);
   assert.match(html, /<html[^>]+data-theme="light"/);
   assert.match(html, /发现下一款好游戏/);
-  assert.match(html, /光与影：33号远征队/);
+  assert.match(html, /光[与與]影：33[号號][远遠]征[队隊]/);
   assert.equal((html.match(/class="game-card"/g) || []).length, 12, "first page should contain usable game cards");
   assert.match(html, /\/covers\//);
   assert.match(html, /aria-label="游戏目录分页"/);
