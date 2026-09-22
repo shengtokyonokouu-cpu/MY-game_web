@@ -1,0 +1,4 @@
+[
+  {"id":"atelier-arland","parentId":"atelier","name":"亚兰德子系列","ja":"アーランドシリーズ","en":"Atelier Arland","aliases":["亚兰德","亞蘭德","亚兰德系列","Arland","アーランド","萝乐娜","蘿樂娜","托托莉","梅露露","露露亚"],"sourceUrl":"https://www.gamecity.ne.jp/atelier/arlanddx/series.html","workEntities":["Q2628794","Q4813032","Q1113356","Q63179773"],"evidence":"官方页面说明亚兰德为炼金工房子系列；露露亚作为亚兰德第四作另有官方来源。","additionalSource":"https://www.gamecity.ne.jp/atelier/lulua/"},
+  {"id":"atelier-mysterious","parentId":"atelier","name":"不可思议子系列","ja":"不思議シリーズ","en":"Atelier Mysterious","aliases":["不可思议系列","不可思議系列","不可思议","不可思議","不思議シリーズ","Mysterious trilogy","Mysterious series","苏菲的炼金工房","蘇菲的鍊金工房","菲莉丝","菲莉絲","莉迪与苏尔","莉迪與蘇瑞"],"sourceUrl":"https://www.gamecity.ne.jp/atelier/mysteriousdx/","workEntities":["Q20312770","Q24864512","Q40889234","Q108773417"],"evidence":"官方不思议三部曲目录，以及苏菲2的官方作品介绍。","additionalSource":"https://www.gamecity.ne.jp/atelier/sophie2/"}
+]

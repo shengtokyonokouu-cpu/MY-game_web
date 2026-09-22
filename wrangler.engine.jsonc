@@ -7,6 +7,7 @@
   "workers_dev": false,
   "preview_urls": false,
   "triggers": { "crons": [] },
+  "vars": { "IP_ENGINE_ENABLED": "false" },
   "durable_objects": { "bindings": [{ "name": "CLOCK", "class_name": "IPEngineClock" }] },
   "migrations": [{ "tag": "ip-clock-v1", "new_sqlite_classes": ["IPEngineClock"] }],
   "services": [{ "binding": "ENGINE", "service": "release-signal-ip-engine", "entrypoint": "IPEngine" }],

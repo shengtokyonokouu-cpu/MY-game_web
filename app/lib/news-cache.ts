@@ -6,7 +6,7 @@ import { newsSources } from "./news-sources.ts";
 const origins: Record<string, string> = Object.fromEntries(newsSources.map((source) => [source.id, source.site]));
 export function validateNewsFeed(value: unknown): NewsFeed {
   const feed = value as NewsFeed | null;
-  if (!feed || !Array.isArray(feed.items) || feed.items.length > 300 || !Array.isArray(feed.sources) || typeof feed.fetchedAt !== "string" || !Number.isFinite(Date.parse(feed.fetchedAt))) throw new Error("无效的新闻缓存");
+  if (!feed || !Array.isArray(feed.items) || feed.items.length > 6000 || !Array.isArray(feed.sources) || typeof feed.fetchedAt !== "string" || !Number.isFinite(Date.parse(feed.fetchedAt))) throw new Error("无效的新闻缓存");
   for (const source of feed.sources) if (!source || !Object.hasOwn(origins, source.id) || typeof source.name !== "string" || typeof source.ok !== "boolean" || !Number.isSafeInteger(source.count) || source.count < 0) throw new Error("无效的新闻来源");
   for (const item of feed.items) {
     if (item?.ipIds !== undefined && (!Array.isArray(item.ipIds) || item.ipIds.length > 100 || item.ipIds.some((id) => typeof id !== "string" || !/^[a-z0-9-]{1,100}$/.test(id)))) throw new Error("无效的系列关联");

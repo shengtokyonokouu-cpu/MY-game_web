@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NewsFeed } from "./news";
 import { validateNewsFeed } from "./news-cache";
+import { publicData } from "./public-data";
 
 export function useNewsFeed() {
   const [feed, setFeed] = useState<NewsFeed | null>(null); const [state, setState] = useState("loading");
@@ -10,8 +11,8 @@ export function useNewsFeed() {
     if (pending.current) return;
     const controller = new AbortController(); pending.current = controller; setState("loading");
     try {
-      const response = await fetch("/api/news", { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(18000)]) }); if (!response.ok) throw new Error();
-      const next = validateNewsFeed(await response.json()); if (controller.signal.aborted) return;
+      const next = validateNewsFeed(await publicData("news.json",controller.signal)); if (controller.signal.aborted) return;
+      next.stale = Date.now()-Date.parse(next.fetchedAt)>8*3600000;
       setFeed(next); setState("ready"); checkedAt.current = Date.now();
       try { localStorage.setItem("release-signal-news-cache", JSON.stringify(next)); } catch { /* Public reading cache only. */ }
     } catch { if (!controller.signal.aborted) setState("error"); }

@@ -2,7 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { franchises as bootstrap, franchiseIndex, type Franchise } from "./franchises";
 import type { NewsArticle } from "./news";
-export type EngineStatus = { channels: number; articles: number; bodies: number; candidates: number; verified: number; pendingJobs: number; failedJobs: number; healthy: boolean; heartbeat: number | null; entityService?: { ok: boolean; retryAt: number } | null };
+import { publicData } from "./public-data";
+import type { SeriesIndex } from "./series-types";
+export type EngineStatus = { channels: number; articles: number; bodies: number; candidates: number; verified: number; pendingJobs: number; failedJobs: number; healthy: boolean; heartbeat: number | null; works?: number; characters?: number; updatedAt?: string; entityService?: { ok: boolean; retryAt: number } | null };
 export function useIPRegistry() {
   const [items, setItems] = useState<Franchise[]>(bootstrap); const [engine, setEngine] = useState<EngineStatus | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
@@ -10,20 +12,17 @@ export function useIPRegistry() {
   const refresh = useCallback(async () => {
     controller.current?.abort(); const run = new AbortController(); controller.current = run;
     try {
-      const next: Franchise[] = []; let cursor: number | null = 0; let health: EngineStatus | null = null;
-      while (cursor !== null) {
-        const response = await fetch("/api/ips?cursor=" + cursor, { signal: AbortSignal.any([run.signal, AbortSignal.timeout(15000)]) });
-        if (!response.ok) throw new Error("Registry unavailable");
-        const page = await response.json() as { items: Franchise[]; nextCursor: number | null; engine?: EngineStatus };
-        if (!Array.isArray(page.items) || page.items.some((ip) => !ip.id || !Array.isArray(ip.aliases))) throw new Error("Registry invalid");
-        if (page.nextCursor !== null && (!Number.isSafeInteger(page.nextCursor) || page.nextCursor <= cursor)) throw new Error("Invalid cursor");
-        next.push(...page.items); health = health || page.engine || null; cursor = page.nextCursor;
-      }
-      if (!run.signal.aborted) { setItems([...new Map(next.map((ip) => [ip.id, ip])).values()]); setEngine(health); setState("ready"); }
+      const snapshot = await publicData<SeriesIndex>("index.json", run.signal);
+      if(snapshot.version!==1||!Array.isArray(snapshot.items)||snapshot.items.length>20000||snapshot.items.some(ip=>!ip.id||!Array.isArray(ip.aliases)))throw new Error("Invalid directory");
+      const next = snapshot.items;
+      // Keep an explicitly followed single-game topic without presenting it as
+      // an automatically qualified multi-game franchise.
+      for(const ip of bootstrap)if(!next.some(v=>v.id===ip.id))next.push({...ip,coverage:"专题频道 · 未达到双作品门槛"});
+      if (!run.signal.aborted) { setItems(next); setEngine({channels:snapshot.stats.channels,works:snapshot.stats.works,characters:snapshot.stats.characters,updatedAt:snapshot.updatedAt,articles:0,bodies:0,candidates:0,verified:0,pendingJobs:0,failedJobs:0,healthy:Date.now()-Date.parse(snapshot.updatedAt)<10*86400000,heartbeat:Date.parse(snapshot.updatedAt)}); setState("ready"); }
     } catch { if (!run.signal.aborted) setState("error"); }
   }, []);
   useEffect(() => {
-    const timer = setTimeout(() => void refresh(), 0); const interval = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 300000);
+    const timer = setTimeout(() => void refresh(), 0); const interval = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 1800000);
     return () => { clearTimeout(timer); clearInterval(interval); controller.current?.abort(); };
   }, [refresh]);
   const index = useMemo(() => franchiseIndex(items), [items]);
@@ -35,9 +34,8 @@ export function useIPArchive(id: string) {
   const load = useCallback(async (offset: number) => {
     run.current?.abort(); const controller = new AbortController(); run.current = controller; setState("loading");
     try {
-      const response = await fetch("/api/ip-news?ip=" + encodeURIComponent(id) + "&cursor=" + offset, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]) });
-      if (!response.ok) throw new Error("Archive unavailable");
-      const data = await response.json();
+      const feed = await publicData<{items:NewsArticle[]}>("news.json",controller.signal);
+      const all = feed.items.filter(a=>a.ipIds?.includes(id)); const data={items:all.slice(offset,offset+100),total:all.length,nextCursor:offset+100<all.length?offset+100:null};
       if (!Array.isArray(data.items)) throw new Error("Archive invalid");
       if (!controller.signal.aborted) { setItems((previous) => [...new Map([...(offset ? previous : []), ...data.items].map((item: NewsArticle) => [item.id, item])).values()]); setCursor(data.nextCursor); setTotal(data.total); setState("ready"); }
     } catch { if (!controller.signal.aborted) setState("error"); }

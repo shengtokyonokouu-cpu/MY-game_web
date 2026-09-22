@@ -1,4 +1,7 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+@source "./components";
+@source "./page.tsx";
+@source "./layout.tsx";
 .discovery-sources{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.5rem 1rem;padding:.8rem 0 0;font-size:.8125rem;color:var(--muted)}
 .game-names{display:grid;gap:.4rem;margin:.65rem 0 .9rem;font-size:.875rem;line-height:1.5}.game-names>div{display:grid;grid-template-columns:3.8rem minmax(0,1fr);gap:.55rem;align-items:baseline}.game-names dt{color:var(--muted);font-size:.75rem}.game-names dd{margin:0;overflow-wrap:anywhere;min-width:0}.name-missing{color:var(--muted);font-size:.8125rem}.game-names small{display:inline-block;margin-left:.5rem;font-size:.75rem;color:var(--accent)}.name-sources{padding:1rem;background:var(--hover);border-radius:.6rem;margin:1rem 0}.name-sources a:hover{text-decoration:underline}.search-sources{display:flex;flex-wrap:wrap;gap:.4rem 1rem;font-size:.8125rem;color:var(--muted);margin:0 0 1rem}.card-date time{overflow-wrap:anywhere}.card-date{align-items:flex-start}.source-dot{flex-shrink:0}
 :root{color-scheme:light;--ui-scale:1;--bg:#f6f7fb;--panel:#fff;--ink:#202537;--muted:#677085;--subtle:#9098aa;--line:#e5e8f0;--accent:#455ce2;--accent-soft:#edf0ff;--hover:#f1f3f9;--green:#157450;--green-soft:#e8f6ef;--amber:#996118;--amber-soft:#fff4df;--shadow:0 8px 28px #1c295b08}

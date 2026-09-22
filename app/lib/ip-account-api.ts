@@ -43,7 +43,7 @@ export async function collectIPNotifications(db: Database, owner: string, feed: 
   for (let i = 0; i < statements.length; i += 40) await db.batch(statements.slice(i, i + 40));
   await db.prepare("DELETE FROM ip_notifications WHERE user_id = ? AND created_at < ?").bind(owner, cutoff).run();
 }
-export async function handleIPAccount(request: Request, env: AppEnv, news: () => Promise<NewsFeed>): Promise<Response> {
+export async function handleIPAccount(request: Request, env: AppEnv, news: () => Promise<NewsFeed>, publicIP?: (id:string)=>Promise<boolean>): Promise<Response> {
   const session = await authenticate(request, env); if (!session) return json({ error: "请先使用 GitHub 登录，再关注系列或查看通知。" }, 401);
   const db = env.DB!; const owner = session.user.id; const notifications = new URL(request.url).pathname.endsWith("notifications");
   if (request.method === "GET") return json(await accountIPState(db, owner));
@@ -61,7 +61,7 @@ export async function handleIPAccount(request: Request, env: AppEnv, news: () =>
   let body; try { body = await smallJSON(request); } catch { return json({ error: "请求格式不正确或超过 8 KB。" }, 400); }
   if (!body || typeof body !== "object") return json({ error: "请求格式不正确。" }, 400);
   if (!notifications) {
-    if (typeof body.ipId !== "string" || body.ipId.length > 100 || typeof body.following !== "boolean" || (!await registeredIP(db, body.ipId) && !franchiseById(body.ipId))) return json({ error: "未知 IP 或订阅状态。" }, 400);
+    if (typeof body.ipId !== "string" || !/^[a-z0-9-]{1,100}$/.test(body.ipId) || typeof body.following !== "boolean" || (!franchiseById(body.ipId) && !(publicIP ? await publicIP(body.ipId) : await registeredIP(db,body.ipId)))) return json({ error: "未知 IP 或订阅状态。" }, 400);
     if (body.following) await db.prepare("INSERT INTO ip_subscriptions (user_id, ip_id, created_at) VALUES (?, ?, ?) ON CONFLICT(user_id, ip_id) DO NOTHING").bind(owner, body.ipId, Date.now()).run();
     else await db.prepare("DELETE FROM ip_subscriptions WHERE user_id = ? AND ip_id = ?").bind(owner, body.ipId).run();
   } else {

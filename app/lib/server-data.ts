@@ -1,5 +1,6 @@
-import { fetchAnnualFeed, upstreamHeaders } from "./release-feed";
-import { mergeCatalog, stabilizeCatalogIds, curatedGames, type CatalogFeed } from "./catalog";
+import { upstreamHeaders } from "./release-feed";
+import { mergeCatalog, curatedGames, type CatalogFeed } from "./catalog";
+import { readPublicData } from "./public-data-server";
 import snapshot from "../data/discovered.json";
 import { gameArticle, trustedGamePage, type WikiArtworkData } from "./game-artwork";
 import { findStoreArtwork } from "./store-artwork";
@@ -10,19 +11,8 @@ import { cached } from "./http-cache";
 export { cached } from "./http-cache";
 
 export async function catalogResponse() {
-  return cached(`catalog-${new Date().getUTCFullYear()}`, 1800, async () => {
-    const year = new Date().getUTCFullYear();
-    const [annual, direct] = await Promise.allSettled([fetchAnnualFeed([year, year + 1]), nintendoGames()]);
-    const annualItems = annual.status === "fulfilled" ? annual.value.items : [];
-    const directItems = direct.status === "fulfilled" ? direct.value : [];
-    const known = mergeCatalog(curatedGames, (snapshot as CatalogFeed).items);
-    const items = stabilizeCatalogIds(mergeCatalog(curatedGames, mergeCatalog(directItems, mergeCatalog(annualItems, (snapshot as CatalogFeed).items))), known);
-    const stale = annual.status === "rejected" && direct.status === "rejected";
-    return Response.json({ items, years: [year, year + 1], updatedAt: stale ? snapshot.updatedAt : new Date().toISOString(), stale, partial: annual.status === "rejected" || direct.status === "rejected" || (annual.status === "fulfilled" && annual.value.partial), sources: [
-      { name: "Nintendo Direct · 日本官方新作目录", ok: direct.status === "fulfilled", count: directItems.length },
-      { name: "Wikipedia · 年度发售索引", ok: annual.status === "fulfilled", count: annualItems.length },
-    ] }, stale ? { headers: { "Cache-Control": "no-store" } } : undefined);
-  });
+  try { return Response.json(await readPublicData<CatalogFeed>("catalog.json"),{headers:{"Cache-Control":"public, max-age=900"}}); }
+  catch { return Response.json({...snapshot,items:mergeCatalog(curatedGames,(snapshot as CatalogFeed).items),stale:true}); }
 }
 export async function nintendoGames() {
   const response = await cached("nintendo-latest", 1800, async () => Response.json(await fetchNintendoDirect()));

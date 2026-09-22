@@ -44,7 +44,7 @@ export function expandRows(table: Element): Element[][] {
 }
 export function parseAnnualFeed(html: string, year: number, checkedAt: string): CatalogGame[] {
   const { document } = parseHTML(html);
-  document.querySelectorAll("sup.reference, .sortkey").forEach((node) => node.remove());
+  document.querySelectorAll("sup.reference, .sortkey, script, style, .sr-only").forEach((node) => node.remove());
   document.querySelectorAll("br").forEach((node) => node.replaceWith(document.createTextNode(", ")));
   const items: CatalogGame[] = [];
   const listUrl = `https://en.wikipedia.org/wiki/List_of_video_games_released_in_${year}`;

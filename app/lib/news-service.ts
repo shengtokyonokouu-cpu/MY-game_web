@@ -1,10 +1,4 @@
-import { cached } from "./server-data";
-import { fetchNews, type NewsFeed } from "./news";
-import { environment } from "./database";
-import { archivedNews } from "./ip-repository";
-export async function newsResponse() { return cached("archived-news-v3", 60, async () => {
-  try { const { DB } = await environment(); if (DB) { const feed = await archivedNews(DB); if (feed.items.length) return Response.json(feed); } }
-  catch (error) { console.error("News archive unavailable; using live feeds", error); }
-  return Response.json(await fetchNews());
-}); }
-export async function currentNews(): Promise<NewsFeed> { return (await newsResponse()).json(); }
+import type { NewsFeed } from "./news";
+import { readPublicData } from "./public-data-server";
+export async function currentNews(): Promise<NewsFeed> { const feed=await readPublicData<NewsFeed>("news.json"); return {...feed,stale:Date.now()-Date.parse(feed.fetchedAt)>8*3600000}; }
+export async function newsResponse() { return Response.json(await currentNews(),{headers:{"Cache-Control":"public, max-age=900"}}); }

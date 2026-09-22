@@ -2,7 +2,7 @@ import type { CatalogGame } from "./catalog.ts";
 import { identityNames, searchTokensMatch } from "./game-names.ts";
 import type { NewsArticle } from "./news.ts";
 
-export type Franchise = { id: string; name: string; ja: string; en: string; description: string; aliases: string[]; sourceUrl: string; color: string; entityId?: string; version?: number; promotedAt?: number; updatedAt?: number; newsCount?: number; followerCount?: number; recentCount?: number; previousCount?: number; rising?: boolean; discovered?: boolean; evidence?: unknown[] };
+export type Franchise = { id: string; name: string; ja: string; en: string; description: string; aliases: string[]; sourceUrl: string; color: string; entityId?: string; version?: number; promotedAt?: number; updatedAt?: number; newsCount?: number; followerCount?: number; recentCount?: number; previousCount?: number; rising?: boolean; discovered?: boolean; evidence?: unknown[]; gameCount?: number; originalCount?: number; parentIds?: string[]; childIds?: string[]; firstYear?: number; lastYear?: number; platforms?: string[]; coverage?: string; searchAliases?: string[]; latestNewsAt?: string };
 // Editorial taxonomy, not game identity. A mention may associate several IPs;
 // it never merges games, certifies a release, or invents a localized title.
 export const franchises: Franchise[] = [
@@ -25,12 +25,41 @@ export function mentionsAlias(text: string, alias: string) {
   if (!pattern) { const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+"); pattern = new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`, "i"); aliasPatterns.set(needle, pattern); }
   return pattern.test(haystack);
 }
-export function matchFranchises(text: string, registry: Franchise[] = franchises) { return registry.filter((ip) => ip.aliases.some((alias) => mentionsAlias(text, alias))); }
+type AliasNode = { children: Map<string, AliasNode>; matches: { index: number; latin: boolean }[] };
+// Ordinary words are not evidence of franchise membership. Search suggestions
+// still accept these labels, but automatic tagging requires a specific name.
+const ambiguousAliases = new Set(["new","lost","control","trails","shift","air","love","black","white","dark","one","it","the","project","world","evolution","kingdom","mana","simple","tales","atelier","不可思议","不可思議"]);
+const tries = new WeakMap<Franchise[], AliasNode>();
+export function matchFranchises(text: string, registry: Franchise[] = franchises) {
+  let root = tries.get(registry);
+  if (!root) {
+    root = { children: new Map(), matches: [] };
+    registry.forEach((ip, index) => ip.aliases.forEach((alias) => {
+      const term = normalized(alias).replace(/\s+/g, " ").trim(); if (term.length < 2 || ambiguousAliases.has(term)) return;
+      let node = root!; for (const char of term) { let next = node.children.get(char); if (!next) { next = { children: new Map(), matches: [] }; node.children.set(char, next); } node = next; }
+      node.matches.push({ index, latin: /[a-z]/i.test(term) });
+    })); tries.set(registry, root);
+  }
+  const value = normalized(text).replace(/\s+/g, " "); const found = new Set<number>();
+  for (let start = 0; start < value.length; start++) {
+    let node: AliasNode | undefined = root;
+    for (let end = start; end < value.length; end++) {
+      node = node.children.get(value[end]); if (!node) break;
+      for (const hit of node.matches) if (!hit.latin || (!/[a-z0-9]/.test(value[start - 1] || "") && !/[a-z0-9]/.test(value[end + 1] || ""))) found.add(hit.index);
+    }
+  }
+  // Atelier is also a studio/workshop noun. Only a title-shaped prefix or
+  // explicit Gust/Koei Tecmo context supports the English franchise label.
+  if (/\batelier\b/i.test(text) && (/^(?:[\s“‘"']*)Atelier\s+[A-Z]/m.test(text) || /\b(Gust|Koei Tecmo)\b/i.test(text))) {
+    const atelier = registry.findIndex(ip => ip.id === "atelier"); if (atelier >= 0) found.add(atelier);
+  }
+  return [...found].sort((a,b) => a-b).map(i => registry[i]);
+}
 // Cache by immutable dictionary snapshot as well as article/game identity. A
 // refreshed registry cannot reuse matches from an older dictionary version.
 const indexes = new WeakMap<Franchise[], { games: WeakMap<CatalogGame, Franchise[]>; articles: WeakMap<NewsArticle, Franchise[]> }>();
 function index(registry: Franchise[]) { let value = indexes.get(registry); if (!value) { value = { games: new WeakMap(), articles: new WeakMap() }; indexes.set(registry, value); } return value; }
-export function gameFranchises(game: CatalogGame, registry: Franchise[] = franchises) { const cache = index(registry).games; let matches = cache.get(game); if (!matches) { matches = matchFranchises(identityNames(game).join("\n"), registry); cache.set(game, matches); } return matches; }
+export function gameFranchises(game: CatalogGame, registry: Franchise[] = franchises) { const cache = index(registry).games; let matches = cache.get(game); if (!matches) { matches = game.ipIds?.length ? registry.filter((ip) => game.ipIds!.includes(ip.id)) : matchFranchises(identityNames(game).join("\n"), registry); cache.set(game, matches); } return matches; }
 export function articleFranchises(article: NewsArticle, registry: Franchise[] = franchises) { const cache = index(registry).articles; let matches = cache.get(article); if (!matches) { matches = article.ipIds ? registry.filter((ip) => article.ipIds!.includes(ip.id)) : matchFranchises(article.title + "\n" + article.excerpt, registry); cache.set(article, matches); } return matches; }
 const emptyGames: CatalogGame[] = [];
 const suggestionIndexes = new WeakMap<Franchise[], WeakMap<CatalogGame[], Map<string, Franchise[]>>>();
@@ -40,9 +69,11 @@ export function suggestFranchises(query: string, games: CatalogGame[] = emptyGam
   let cache = dictionary.get(games); if (!cache) { cache = new Map(); dictionary.set(games, cache); }
   const hit = cache.get(query); if (hit) return hit;
   const direct = matchFranchises(query, registry);
-  const partial = registry.filter((ip) => [ip.name, ip.en, ip.ja, ...ip.aliases].some((name) => normalized(name).includes(normalized(query.trim()))));
+  const partial = registry.filter((ip) => [ip.name, ip.en, ip.ja, ...ip.aliases, ...(ip.searchAliases||[])].some((name) => normalized(name).includes(normalized(query.trim()))));
   const related = games.filter((game) => identityNames(game).some((name) => searchTokensMatch(name, query))).flatMap((game) => gameFranchises(game, registry));
-  const result = [...new Map([...direct, ...partial, ...related].map((ip) => [ip.id, ip])).values()].slice(0, 6);
+  const hits = [...new Map([...direct, ...partial, ...related].map((ip) => [ip.id, ip])).values()];
+  const parents = hits.flatMap(ip=>(ip.parentIds||[]).map(id=>registry.find(p=>p.id===id))).filter((ip):ip is Franchise=>!!ip);
+  const result = [...new Map([...parents,...hits].map(ip=>[ip.id,ip])).values()].slice(0,6);
   if (cache.size >= 20) cache.delete(cache.keys().next().value!); cache.set(query, result); return result;
 }
 export function franchiseIndex(registry: Franchise[]) {
@@ -93,6 +124,6 @@ export function ipTimeline(games: CatalogGame[], now = Date.now()) {
   const today = new Date(now).toISOString().slice(0, 10);
   return games.flatMap((game) => {
     const versions = game.releases?.length ? game.releases : [{ date: game.releaseDate, label: game.dateLabel, platforms: game.platforms, sourceUrl: game.source.url, kind: "作品" }];
-    return versions.filter((release) => release.date ? release.date >= today : game.declaredStatus !== "released").map((release) => ({ ...release, game }));
+    return versions.filter((release) => release.date ? release.date >= today : ["upcoming", "development"].includes(game.declaredStatus)).map((release) => ({ ...release, game }));
   }).sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999"));
 }

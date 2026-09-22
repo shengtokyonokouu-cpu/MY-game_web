@@ -1,6 +1,6 @@
-import { environment } from "../../lib/database";
-import { engineStatus } from "../../lib/ip-repository";
+import { readPublicData } from "../../lib/public-data-server";
+import type { SeriesIndex } from "../../lib/series-types";
 export async function GET() {
-  try { const { DB } = await environment(); if (!DB) throw new Error("D1 unavailable"); return Response.json(await engineStatus(DB), { headers: { "Cache-Control": "public, max-age=60" } }); }
-  catch { return Response.json({ error: "后台状态暂不可用" }, { status: 503 }); }
+  try { const index = await readPublicData<SeriesIndex>("index.json"); return Response.json({ mode:"offline-snapshot", cloudflareScheduler:"disabled", ...index.stats, updatedAt:index.updatedAt, healthy:Date.now()-Date.parse(index.updatedAt)<10*86400000, coverage:index.coverage }, {headers:{"Cache-Control":"public, max-age=900"}}); }
+  catch { return Response.json({mode:"offline-snapshot",cloudflareScheduler:"disabled",healthy:false},{status:503}); }
 }

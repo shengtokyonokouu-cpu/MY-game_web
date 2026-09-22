@@ -7,6 +7,12 @@ export type ReleaseState = "released" | "upcoming" | "development" | "check";
 export type LibraryStatus = "wishlist" | "playing" | "finished" | "paused";
 export type CatalogGame = {
   id: string;
+  entityId?: string;
+  ipIds?: string[];
+  year?: number;
+  editionKind?: "original" | "remake" | "collection";
+  characterIds?: string[];
+  subseriesIds?: string[];
   title: string;
   originalTitle: string;
   developer: string;
@@ -72,6 +78,8 @@ export function mergeCatalog(primary: CatalogGame[], extra: CatalogGame[]) {
       const current = output[existingIndex];
       const names = mergeNames(current.names, game.names);
       output[existingIndex] = { ...current, image: current.image || game.image, names,
+        entityId:current.entityId||game.entityId,year:current.year||game.year,editionKind:current.editionKind||game.editionKind,
+        ipIds:[...new Set([...(current.ipIds||[]),...(game.ipIds||[])])],subseriesIds:[...new Set([...(current.subseriesIds||[]),...(game.subseriesIds||[])])],characterIds:[...new Set([...(current.characterIds||[]),...(game.characterIds||[])])],
         title: names.zh?.text || current.title,
         originalTitle: names.en?.text || current.originalTitle,
         searchTerms: Array.from(new Set([...identityNames(current), ...identityNames(game), ...(current.searchTerms || []), ...(game.searchTerms || [])])),

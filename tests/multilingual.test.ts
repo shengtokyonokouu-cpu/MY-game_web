@@ -77,7 +77,7 @@ test("Japanese Wikipedia game categories and linked titles are recognized", asyn
   finally { globalThis.fetch = original; }
 });
 test("Chinese/Japanese RSS and RDF dates work with the shared safe-origin cache", () => {
-  assert.equal(newsSources.length, 8); assert.equal(new Set(newsSources.map((source) => source.language)).size, 3);
+  assert.ok(newsSources.length >= 9); assert.equal(new Set(newsSources.map((source) => source.language)).size, 3);
   const source = newsSources.find((source) => source.id === "4gamer")!;
   const items = parseNews(`<rdf:RDF xmlns:dc="http://purl.org/dc/elements/1.1/"><item><title>新作インタビュー</title><link>https://www.4gamer.net/games/example/</link><dc:date>2026-09-09T12:00:00+09:00</dc:date></item></rdf:RDF>`, source, now.getTime());
   assert.equal(items.length, 1); assert.equal(items[0].topic, "interview");

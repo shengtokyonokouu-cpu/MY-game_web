@@ -22,12 +22,12 @@ export function Icon({ name, className = "" }: { name: string; className?: strin
 export function GameCover({ game, eager = false }: { game: CatalogGame; eager?: boolean }) {
   const [failedUrls, setFailedUrls] = useState<string[]>([]);
   const lookup = new URLSearchParams({ name: game.originalTitle }); if (gameArticle(game.articleTitle) && !game.id.startsWith("steam-")) lookup.set("title", game.articleTitle);
-  const candidates = [game.image?.startsWith("/") ? game.image : game.image ? `/api/image?url=${encodeURIComponent(game.image)}` : "", game.originalTitle ? `/api/cover?${lookup}` : ""].filter(Boolean);
+  const candidates = [game.image && /^(https:\/\/|\/covers\/)/.test(game.image) ? game.image : "", !game.entityId && game.originalTitle ? `/api/cover?${lookup}` : ""].filter(Boolean);
   const image = candidates.find((url) => !failedUrls.includes(url)); const failed = !image;
   return <div className={`game-cover ${failed ? "cover-missing" : ""}`}>
-    {/* Remote covers are fetched through the same-origin, allowlisted image service. */}
+    {/* Public-source images load directly; a history grid never starts a crawl. */}
     {/* eslint-disable-next-line @next/next/no-img-element */}
-    {image && <img key={image} src={image} alt={`${game.title}封面`} loading={eager ? "eager" : "lazy"} decoding="async" onError={() => setFailedUrls((urls) => [...urls, image])}/>}
+    {image && <img key={image} src={image} alt={`${game.title}封面`} loading={eager ? "eager" : "lazy"} decoding="async" referrerPolicy="no-referrer" onError={() => setFailedUrls((urls) => [...urls, image])}/>}
     {failed && <div><Icon name="game"/><span>{game.title}</span><small>暂无可用封面</small></div>}
   </div>;
 }
