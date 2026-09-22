@@ -38,7 +38,9 @@ for(const ip of retagOnly?[]:candidates){for(const sourceId of process.argv.incl
 }}
 const forbidden=new Set(['new','lost','control','trails','shift','air','love','black','white','dark','one','it','the','project','world','evolution','不可思议','不可思議']);
 const rules=index.items.map(ip=>({...ip,aliases:[...ip.aliases,ip.en,ip.ja,ip.name].filter(a=>a&&a.length>=3&&!forbidden.has(a.toLowerCase()))}));
-const workRules=search.filter(g=>g.ipIds.length).map(g=>({id:g.id,aliases:g.names.filter(n=>n.length>=(/^[\x20-\x7E]+$/.test(n)?10:5)),ipIds:g.ipIds}));
+// Japanese/Chinese headlines often omit the subtitle between wave dashes.
+// Do not shorten English titles at ':' (that would merge sibling subseries).
+const workRules=search.filter(g=>g.ipIds.length).map(g=>({id:g.id,aliases:[...new Set(g.names.flatMap(n=>[n,n.split(/[～〜]/)[0].trim()]))].filter(n=>n.length>=(/^[\x20-\x7E]+$/.test(n)?10:5)),ipIds:g.ipIds}));
 const byId=new Map(index.items.map(ip=>[ip.id,ip]));
 function tag(article){const text=article.title+'\n'+article.excerpt;const ids=new Set(matchFranchises(text,rules).map(ip=>ip.id));for(const work of matchFranchises(text,workRules))for(const id of work.ipIds)ids.add(id);const addParents=id=>{for(const p of byId.get(id)?.parentIds||[])if(!ids.has(p)){ids.add(p);addParents(p);}};for(const id of ids)addParents(id);return{...article,ipIds:[...ids].filter(id=>byId.has(id)).slice(0,100)};}
 const items=[...new Map([...previous.items,...fresh].map(a=>[a.url,tag(a)])).values()].sort((a,b)=>b.publishedAt.localeCompare(a.publishedAt)).slice(0,6000);
