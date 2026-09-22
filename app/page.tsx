@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import snapshot from "../public/data/catalog.json";
+import snapshot from "./data/discovered.json";
 import { SNAPSHOT_DATE } from "./data/games";
 import { averageScore, curatedGames, libraryLabels, matchesQuery, mergeCatalog, releaseLabels, releaseState, type CatalogFeed, type CatalogGame, type LibraryStatus, type ReleaseState } from "./lib/catalog";
 import { EmptyState, GameCover, Icon } from "./components/ui";
