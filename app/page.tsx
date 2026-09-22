@@ -1,454 +1,194 @@
 "use client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import snapshot from "./data/discovered.json";
+import { SNAPSHOT_DATE } from "./data/games";
+import { averageScore, curatedGames, libraryLabels, matchesQuery, mergeCatalog, releaseLabels, releaseState, type CatalogFeed, type CatalogGame, type LibraryStatus, type ReleaseState } from "./lib/catalog";
+import { EmptyState, GameCover, Icon } from "./components/ui";
+import { mergeNames, type GameNames } from "./lib/game-names";
+import { GameNameRows } from "./components/game-names";
+import { GameDetail } from "./components/game-detail";
+import { CalendarView, SettingsView } from "./components/views";
+import { LiveNewsView } from "./components/news-view";
+import { AccountPanel } from "./components/account-panel";
+import { usePersonalLibrary } from "./lib/use-personal-library";
+import { IPProvider, useIP } from "./components/ip-provider";
+import { IPDirectory, IPFacets, IPHub, IPNavigation, IPTags, IPSearch, PopularIPs, FollowingFeed, NotificationCenter } from "./components/ip-components";
+import { publicData } from "./lib/public-data";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import {
-  games,
-  platformLabels,
-  signals,
-  SNAPSHOT_DATE,
-  type Game,
-  type GameStatus,
-  type Platform,
-  type ScoreSet,
-} from "./data/games";
-
-type View = "radar" | "calendar" | "mine" | "sources";
-type ShelfStatus = "interested" | "playing" | "finished" | "paused";
-type StatusFilter = "all" | GameStatus;
-type SortKey = "recommend" | "date-asc" | "date-desc" | "score";
-
-const STORAGE_KEY = "release-signal-personal-v1";
-const scoreKeys: Array<{ key: keyof ScoreSet; label: string; short: string }> = [
-  { key: "gameplay", label: "玩法", short: "玩" },
-  { key: "story", label: "剧情", short: "剧" },
-  { key: "visuals", label: "画面", short: "画" },
-  { key: "music", label: "音乐", short: "乐" },
-];
-
-const statusLabels: Record<GameStatus, string> = {
-  released: "已发售",
-  upcoming: "待发售",
-  development: "开发中",
-};
-
-const shelfLabels: Record<ShelfStatus, string> = {
-  interested: "想玩",
-  playing: "在玩",
-  finished: "已通关",
-  paused: "搁置",
-};
-
-function average(scores: ScoreSet) {
-  return Object.values(scores).reduce((sum, value) => sum + value, 0) / 4;
-}
-
-function daysFromNow(date: string | null) {
-  if (!date) return null;
-  const release = new Date(`${date}T00:00:00+08:00`).getTime();
-  const now = Date.now();
-  return Math.ceil((release - now) / 86400000);
-}
-
-function countdownLabel(game: Game) {
-  const days = daysFromNow(game.releaseDate);
-  if (game.status === "development" || days === null) return "TBA";
-  if (days < 0) return "OUT NOW";
-  if (days === 0) return "TODAY";
-  return `D-${days}`;
-}
-
-function artStyle(game: Game): CSSProperties {
-  return {
-    "--art-accent": game.accent,
-    "--art-accent-2": game.accent2,
-  } as CSSProperties;
-}
-
-function GameArtwork({ game, compact = false }: { game: Game; compact?: boolean }) {
-  return (
-    <div className={`game-artwork ${compact ? "compact" : ""}`} style={artStyle(game)} aria-hidden="true">
-      <div className="art-grid" />
-      <div className="art-orbit" />
-      <span className="art-country">{game.country}</span>
-      <strong>{game.mark}</strong>
-      <span className="art-index">{game.id.slice(0, 2).toUpperCase()} / {game.dateLabel.slice(0, 4)}</span>
-    </div>
-  );
-}
-
-function ScoreBars({ scores, compact = false }: { scores: ScoreSet; compact?: boolean }) {
-  return (
-    <div className={`score-bars ${compact ? "compact" : ""}`}>
-      {scoreKeys.map(({ key, label, short }) => (
-        <div key={key}>
-          <span>{compact ? short : label}</span>
-          <i><b style={{ width: `${scores[key] * 10}%` }} /></i>
-          <strong>{scores[key].toFixed(1)}</strong>
-        </div>
-      ))}
-    </div>
-  );
-}
+type View = "discover" | "calendar" | "library" | "news" | "settings" | "ips" | "ip" | "notifications";
+const navigation: { id: View; label: string; icon: string }[] = [{ id: "discover", label: "发现游戏", icon: "discover" }, { id: "calendar", label: "发售日历", icon: "calendar" }, { id: "library", label: "我的游戏架", icon: "library" }, { id: "news", label: "游戏新闻", icon: "news" }, { id: "ips", label: "IP 频道", icon: "tag" }];
+const initialFeed = snapshot as CatalogFeed;
+const initialCatalog = mergeCatalog(curatedGames, initialFeed.items);
+const PAGE_SIZE = 12;
+export const platforms = ["PC", "PS5", "PS4", "Switch 2", "Switch", "Xbox", "iOS", "Android"];
 
 export default function Home() {
-  const [view, setView] = useState<View>("radar");
-  const [status, setStatus] = useState<StatusFilter>("all");
-  const [platform, setPlatform] = useState<"all" | Platform>("all");
-  const [region, setRegion] = useState<"all" | Game["region"]>("all");
-  const [sort, setSort] = useState<SortKey>("recommend");
+  const cloud = usePersonalLibrary();
+  return <IPProvider key={cloud.session.user?.id || "guest"} session={cloud.session}><Workspace cloud={cloud}/></IPProvider>;
+}
+function Workspace({ cloud }: { cloud: ReturnType<typeof usePersonalLibrary> }) {
+  const [routeReady, setRouteReady] = useState(false);
+  const [view, setView] = useState<View>("discover");
+  const [feed, setFeed] = useState<CatalogFeed>(initialFeed);
+  const [syncState, setSyncState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const ipStore = useIP(); const { franchiseById, gameFranchises } = ipStore;
+  const [ipFilter, setIPFilter] = useState("all");
+  const [hubId, setHubId] = useState("");
+  const [homeTab, setHomeTab] = useState("discover");
+  const { library, setLibrary, ready, storageError } = cloud;
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<Game | null>(null);
-  const [wishlist, setWishlist] = useState<string[]>([]);
-  const [shelf, setShelf] = useState<Record<string, ShelfStatus>>({});
-  const [ratings, setRatings] = useState<Record<string, ScoreSet>>({});
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [hydrated, setHydrated] = useState(false);
+  const [status, setStatus] = useState<"all" | ReleaseState>("all");
+  const [platform, setPlatform] = useState("all");
+  const [genre, setGenre] = useState("all");
+  const [region, setRegion] = useState("all");
+  const [sort, setSort] = useState("recommended");
+  const [page, setPage] = useState(1);
+  const [shelfFilter, setShelfFilter] = useState<"all" | LibraryStatus>("all");
+  const [selected, setSelected] = useState<CatalogGame | null>(null);
+  const [theme, setTheme] = useState("light");
+  const [scale, setScale] = useState(1);
+  const [density, setDensity] = useState("comfortable");
   const [toast, setToast] = useState("");
-
+  const [nameRecords, setNameRecords] = useState<Record<string, { names?: GameNames; image?: string }>>({});
+  const attemptedNames = useRef(new Set<string>());
+  const [onlineResults, setOnlineResults] = useState<CatalogGame[]>([]);
+  const [onlineState, setOnlineState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [searchSources, setSearchSources] = useState<{ name: string; ok: boolean; count: number }[]>([]);
+  const [searchRetry, setSearchRetry] = useState(0);
+  const searchRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
+    let preferences: { theme?: string; scale?: number; density?: string } = {};
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const saved = JSON.parse(raw) as {
-          wishlist?: string[];
-          shelf?: Record<string, ShelfStatus>;
-          ratings?: Record<string, ScoreSet>;
-          notes?: Record<string, string>;
-        };
-        queueMicrotask(() => {
-          setWishlist(saved.wishlist ?? []);
-          setShelf(saved.shelf ?? {});
-          setRatings(saved.ratings ?? {});
-          setNotes(saved.notes ?? {});
-        });
-      }
-    } catch {
-      // Invalid local data is ignored so the catalog always remains usable.
-    }
-    queueMicrotask(() => setHydrated(true));
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ wishlist, shelf, ratings, notes }));
-  }, [hydrated, wishlist, shelf, ratings, notes]);
-
-  useEffect(() => {
-    if (!selected) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSelected(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [selected]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const timer = window.setTimeout(() => setToast(""), 2200);
-    return () => window.clearTimeout(timer);
-  }, [toast]);
-
-  const filtered = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    return games
-      .filter((game) => status === "all" || game.status === status)
-      .filter((game) => platform === "all" || game.platforms.includes(platform))
-      .filter((game) => region === "all" || game.region === region)
-      .filter((game) => {
-        if (!normalized) return true;
-        return [
-          game.title,
-          game.originalTitle,
-          game.developer,
-          game.publisher,
-          game.country,
-          ...game.genres,
-        ].some((value) => value.toLowerCase().includes(normalized));
-      })
-      .sort((a, b) => {
-        if (sort === "date-asc") return (a.releaseDate ?? "9999").localeCompare(b.releaseDate ?? "9999");
-        if (sort === "date-desc") return (b.releaseDate ?? "0000").localeCompare(a.releaseDate ?? "0000");
-        if (sort === "score") return average(b.scores) - average(a.scores);
-        if (a.featured !== b.featured) return a.featured ? -1 : 1;
-        return (b.releaseDate ?? "0000").localeCompare(a.releaseDate ?? "0000");
-      });
-  }, [platform, query, region, sort, status]);
-
-  const heroGame = games.find((game) => game.id === "onimusha-way-of-the-sword") ?? games[0];
-  const personalIds = new Set([...wishlist, ...Object.keys(shelf)]);
-  const personalGames = games.filter((game) => personalIds.has(game.id));
-
-  function announce(message: string) {
-    setToast(message);
-  }
-
-  function toggleWishlist(id: string) {
-    setWishlist((current) => {
-      const exists = current.includes(id);
-      announce(exists ? "已移出愿望单" : "已加入愿望单");
-      return exists ? current.filter((item) => item !== id) : [...current, id];
+      preferences = JSON.parse(localStorage.getItem("release-signal-preferences-v2") || "{}");
+      preferences.theme ??= localStorage.getItem("release-signal-theme-v1") || "light";
+    } catch { /* Use default appearance when browser preferences are unavailable. */ }
+    queueMicrotask(() => {
+      setTheme(preferences.theme === "dark" ? "dark" : "light");
+      setScale(typeof preferences.scale === "number" && preferences.scale >= .9 && preferences.scale <= 1.5 ? preferences.scale : 1);
+      setDensity(preferences.density === "compact" ? "compact" : "comfortable");
+      const params = new URLSearchParams(location.search); const wanted = params.get("view");
+      if (["discover", "calendar", "library", "news", "settings", "ips", "ip", "notifications"].includes(wanted || "")) setView(wanted as View);
+      setQuery(params.get("q") || ""); setHubId(params.get("ip") || ""); setHomeTab(params.get("tab") === "following" ? "following" : "discover"); setIPFilter(/^[a-z0-9-]{1,100}$/.test(params.get("series") || "") ? params.get("series")! : "all"); setPlatform(params.get("platform") || "all"); const id = params.get("game");
+      if (id) setSelected(initialCatalog.find((game) => game.id === id) ?? null);
+      if (params.has("auth_error")) setToast("GitHub 登录未完成，请在账号设置中重试。");
+      setRouteReady(true);
     });
+  }, []);
+  useEffect(() => {
+    if (!ready) return;
+    document.documentElement.dataset.theme = theme; document.documentElement.style.setProperty("--ui-scale", String(scale));
+    try { localStorage.setItem("release-signal-preferences-v2", JSON.stringify({ theme, scale, density })); } catch { /* Session-local preferences remain usable. */ }
+  }, [theme, scale, density, ready]);
+  useEffect(() => {
+    if (!ready || !routeReady) return; const url = new URL(location.href);
+    for (const [key, value] of [["view", view === "discover" ? "" : view], ["q", query], ["game", selected?.id || ""], ["ip", view === "ip" ? hubId : ""], ["series", ipFilter === "all" ? "" : ipFilter], ["platform", platform === "all" ? "" : platform], ["tab", view === "discover" && homeTab === "following" ? "following" : ""]]) { if (value) url.searchParams.set(key, value); else url.searchParams.delete(key); }
+    history.replaceState(null, "", url);
+  }, [view, query, selected, ready, routeReady, hubId, ipFilter, platform, homeTab]);
+  useEffect(() => {
+    const restore = () => { const params = new URLSearchParams(location.search); const wanted = params.get("view") || "discover"; setView((["discover", "calendar", "library", "news", "settings", "ips", "ip", "notifications"].includes(wanted) ? wanted : "discover") as View); setHubId(params.get("ip") || ""); setQuery(params.get("q") || ""); setIPFilter(params.get("series") || "all"); setPlatform(params.get("platform") || "all"); setHomeTab(params.get("tab") === "following" ? "following" : "discover"); setSelected(null); setPage(1); };
+    window.addEventListener("popstate", restore); return () => window.removeEventListener("popstate", restore);
+  }, []);
+  const refresh = useCallback(async () => {
+    setSyncState("loading");
+    try { const next = await publicData<CatalogFeed>("catalog.json"); if (!Array.isArray(next.items) || !next.items.length) throw new Error(); setFeed(next); setSyncState(next.stale ? "error" : "ready"); } catch { setSyncState("error"); }
+  }, []);
+  useEffect(() => { const timer = setTimeout(() => void refresh(), 200); const interval = setInterval(() => { if (document.visibilityState === "visible") void refresh(); }, 30 * 60 * 1000); return () => { clearTimeout(timer); clearInterval(interval); }; }, [refresh]);
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      if (query.trim().length < 2 || view !== "discover" || homeTab !== "discover") { setOnlineResults([]); setOnlineState("idle"); return; }
+      setOnlineResults([]); setSearchSources([]); setOnlineState("loading");
+      void fetch(`/api/search?q=${encodeURIComponent(query.trim())}`, { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20000)]) })
+        .then(async (response) => { if (!response.ok) throw new Error(); return response.json(); })
+        .then((data: { items: CatalogGame[]; sources?: { name: string; ok: boolean; count: number }[] }) => { if (!controller.signal.aborted) { setOnlineResults(data.items); setSearchSources(data.sources || []); setOnlineState("ready"); } })
+        .catch(() => { if (!controller.signal.aborted) { setOnlineResults([]); setOnlineState("error"); } });
+    }, 400); return () => { clearTimeout(timer); controller.abort(); };
+  }, [query, view, searchRetry, homeTab]);
+  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 3500); return () => clearTimeout(timer); }, [toast]);
+  useEffect(() => { const onKey = (event: KeyboardEvent) => { if ((event.metaKey || event.ctrlKey) && event.key === "k") { event.preventDefault(); searchRef.current?.focus(); } }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, []);
+
+  const catalog = useMemo(() => mergeCatalog(curatedGames, feed.items), [feed.items]);
+  const searchable = useMemo(() => mergeCatalog(catalog, onlineResults).map((game) => {
+    const record = nameRecords[game.id]; if (!record) return game;
+    const names = mergeNames(game.names, record.names);
+    return { ...game, names, image: game.image || record.image, title: names.zh?.text || game.title, originalTitle: names.en?.text || game.originalTitle };
+  }), [catalog, onlineResults, nameRecords]);
+  const genres = Array.from(new Set(catalog.flatMap((game) => game.genres))).filter(Boolean).sort((a, b) => a.localeCompare(b, "zh"));
+  const counts = catalog.reduce((acc, game) => { acc[releaseState(game)]++; return acc; }, { released: 0, upcoming: 0, development: 0, check: 0 });
+  const beforeIP = useMemo(() => {
+    const source = view === "library" ? Object.values(library).filter((entry) => shelfFilter === "all" || entry.status === shelfFilter).map((entry) => searchable.find((game) => game.id === entry.game.id) || entry.game) : searchable;
+    return source.filter((game) => (view === "library" || status === "all" || releaseState(game) === status) && (platform === "all" || game.platforms.includes(platform)) && (genre === "all" || game.genres.includes(genre)) && (region === "all" || game.region === region) && matchesQuery(game, query)).sort((a, b) => {
+      if (sort === "date-asc") return (a.releaseDate || "9999").localeCompare(b.releaseDate || "9999");
+      if (sort === "date-desc") return (b.releaseDate || "0000").localeCompare(a.releaseDate || "0000");
+      if (sort === "name") return a.title.localeCompare(b.title, "zh");
+      if (sort === "rating") return (averageScore(library[b.id]?.scores) ?? -1) - (averageScore(library[a.id]?.scores) ?? -1);
+      if (view === "library") return (library[b.id]?.updatedAt || "").localeCompare(library[a.id]?.updatedAt || "");
+      return Number(!!b.featured) - Number(!!a.featured) || (b.releaseDate || "").localeCompare(a.releaseDate || "");
+    });
+  }, [view, library, shelfFilter, searchable, status, platform, genre, region, query, sort]);
+  const filtered = useMemo(() => beforeIP.filter((game) => ipFilter === "all" || gameFranchises(game).some((ip) => ip.id === ipFilter)), [beforeIP, ipFilter, gameFranchises]);
+  const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE)); const currentPage = Math.min(page, pages); const visible = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const visibleIds = visible.map((game) => game.id).join(",");
+  useEffect(() => {
+    if (view !== "discover" && view !== "library") return;
+    const attempted = attemptedNames.current;
+    const games = visibleIds.split(",").map((id) => searchable.find((game) => game.id === id)).filter((game): game is CatalogGame => !!game && !(game.names?.zh && game.names?.ja && game.names?.en) && !attempted.has(game.id));
+    if (!games.length) return;
+    // Each request is bounded to 3 identities / 12 upstream calls. No unbounded
+    // catalog-wide query burst, and no writes to personal records.
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      const ids = games.map((game) => game.id); ids.forEach((id) => attempted.add(id));
+      for (let i = 0; i < ids.length; i += 3) {
+        const batch = ids.slice(i, i + 3);
+        void fetch("/api/names?ids=" + encodeURIComponent(batch.join(",")), { signal: controller.signal }).then(async (response) => {
+          if (!response.ok) throw new Error(); return response.json();
+        }).then((data: { items: { id: string; names?: GameNames; image?: string; state: string }[] }) => {
+          if (controller.signal.aborted) return;
+          setNameRecords((current) => ({ ...current, ...Object.fromEntries(data.items.filter((item) => item.names).map((item) => [item.id, item])) }));
+        }).catch(() => { /* Existing names remain visible when a source is down. */ });
+      }
+    }, 700);
+    return () => { clearTimeout(timer); controller.abort(); games.forEach((game) => attempted.delete(game.id)); };
+  // Only a page/view change starts lookup; returned metadata must not restart it.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visibleIds, view]);
+  const latestDirect = catalog.flatMap((game) => game.events || []).sort((a, b) => b.date.localeCompare(a.date))[0];
+  const shelfCounts = Object.values(library).reduce((acc, entry) => { acc[entry.status]++; return acc; }, { wishlist: 0, playing: 0, finished: 0, paused: 0 });
+  function navigate(next: View) { const url = new URL(location.href); url.search = next === "discover" ? "" : `?view=${next}`; history.pushState(null, "", url); setIPFilter("all"); setHomeTab("discover"); setView(next); setPage(1); setQuery(""); setOnlineResults([]); setPlatform("all"); setGenre("all"); setRegion("all"); setStatus("all"); window.scrollTo({ top: 0 }); }
+  function openIP(id: string) { navigate("ip"); setHubId(id); setSelected(null); }
+  function pickIP(id: string) { setIPFilter(id); setPage(1); }
+  function clearFilters() { setIPFilter("all"); setQuery(""); setPlatform("all"); setGenre("all"); setRegion("all"); setStatus("all"); setShelfFilter("all"); setPage(1); }
+  function saveGame(game: CatalogGame) { setLibrary((current) => ({ ...current, [game.id]: { game, notes: "", scores: {}, status: "wishlist", updatedAt: new Date().toISOString() } })); setToast("已加入「想玩」"); }
+  function changePage(next: number) { setPage(next); document.getElementById("results")?.scrollIntoView({ block: "start", behavior: "smooth" }); }
+  function renderCard(game: CatalogGame, index: number) {
+    const entry = library[game.id]; const average = averageScore(entry?.scores);
+    return <article className="game-card" key={game.id}><button className="card-image-button" onClick={() => setSelected(game)} aria-label={`查看${game.title}`}><GameCover key={game.id} game={game} eager={index < 4}/><span className={`release-pill ${releaseState(game)}`}>{releaseLabels[releaseState(game)]}</span></button><div className="card-body"><div className="card-date"><time>{game.releaseDate?.replaceAll("-", ".") || game.dateLabel || "日期待定"}</time><span className={`source-dot ${game.source.type}`} title={game.source.label}>{game.source.type === "official" ? "官方来源" : game.source.type === "store" ? "商店资料" : "公共索引"}</span></div><h2><button onClick={() => setSelected(game)}>{game.title}</button></h2><GameNameRows game={game}/><IPTags items={gameFranchises(game)}/><p className="card-developer">{game.developer || game.originalTitle}</p><div className="platforms">{game.platforms.slice(0, 4).map((item) => <span key={item}>{item}</span>)}{game.platforms.length > 4 && <span>+{game.platforms.length - 4}</span>}{!game.platforms.length && <span>平台待确认</span>}</div><div className="card-footer"><span className="card-genre">{average !== null ? `我的评分 ${average.toFixed(1)}` : game.genres.slice(0, 2).join(" · ") || "类型待确认"}</span><button className={`save-button ${entry ? "saved" : ""}`} disabled={!ready || cloud.cacheBlocked || (!!storageError && !cloud.session.user)} onClick={() => entry ? setSelected(game) : saveGame(game)} aria-label={entry ? `管理${game.title}` : `收藏${game.title}`}><Icon name={entry ? "check" : "plus"}/>{entry ? libraryLabels[entry.status] : "想玩"}</button></div></div></article>;
   }
-
-  function openView(next: View) {
-    setView(next);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  function pagination() {
+    if (pages <= 1) return null; const numbers = Array.from({ length: pages }, (_, i) => i + 1).filter((value) => value === 1 || value === pages || Math.abs(value - currentPage) <= 1);
+    return <nav className="pagination" aria-label="游戏目录分页"><button className="button" disabled={currentPage === 1} onClick={() => changePage(currentPage - 1)}>上一页</button><div>{numbers.map((value, index) => <span key={value}>{index > 0 && value > numbers[index - 1] + 1 && <i>…</i>}<button aria-label={`第 ${value} 页`} aria-current={currentPage === value ? "page" : undefined} className={value === currentPage ? "active" : ""} onClick={() => changePage(value)}>{value}</button></span>)}</div><button className="button" disabled={currentPage === pages} onClick={() => changePage(currentPage + 1)}>下一页</button></nav>;
   }
+  function filters() { return <><PopularIPs value={ipFilter} onChange={pickIP}/><div className="filters"><label><span>平台</span><select value={platform} onChange={(e) => { setPlatform(e.target.value); setPage(1); }}><option value="all">全部平台</option>{platforms.map((item) => <option key={item}>{item}</option>)}</select></label><label><span>类型</span><select value={genre} onChange={(e) => { setGenre(e.target.value); setPage(1); }}><option value="all">全部类型</option>{genres.map((item) => <option key={item}>{item}</option>)}</select></label><label><span>地区</span><select value={region} onChange={(e) => { setRegion(e.target.value); setPage(1); }}><option value="all">全部地区</option><option>日本</option><option>欧美</option><option>其他</option><option value="">待确认</option></select></label><label className="sort-control"><span>排序</span><select value={sort} onChange={(e) => { setSort(e.target.value); setPage(1); }}><option value="recommended">{view === "library" ? "最近更新" : "精选优先"}</option><option value="date-desc">日期：从新到旧</option><option value="date-asc">日期：从旧到新</option><option value="name">游戏名称</option><option value="rating">我的评分</option></select></label></div><div id="results" className="results-meta"><span>共 <strong>{filtered.length}</strong> 部游戏{filtered.length > PAGE_SIZE && ` · 第 ${currentPage} / ${pages} 页`}{onlineState === "loading" && query.length > 1 && " · 正在搜索更多…"}</span>{(query || ipFilter !== "all" || platform !== "all" || genre !== "all" || region !== "all" || status !== "all" || shelfFilter !== "all") && <button className="text-button" onClick={clearFilters}>清除筛选 <Icon name="close"/></button>}</div></>; }
 
-  function scoreFor(game: Game) {
-    return ratings[game.id] ?? game.scores;
-  }
-
-  function updateRating(game: Game, key: keyof ScoreSet, value: number) {
-    setRatings((current) => ({
-      ...current,
-      [game.id]: { ...(current[game.id] ?? game.scores), [key]: value },
-    }));
-  }
-
-  function renderRadar() {
-    return (
-      <>
-        <section className="hero" id="top">
-          <div className="hero-copy">
-            <p className="eyebrow"><span /> 个人游戏情报台 · {SNAPSHOT_DATE.replaceAll("-", ".")}</p>
-            <h1>下一段值得<br />投入的<span>世界。</span></h1>
-            <p className="hero-lede">从官方发布、开发者访谈到仍未定档的计划，把每一次心动放在证据旁边。</p>
-            <div className="hero-actions">
-              <button className="primary-action" onClick={() => document.querySelector("#catalog")?.scrollIntoView({ behavior: "smooth" })}>浏览 {games.length} 部档案 <span>↓</span></button>
-              <button className="text-action" onClick={() => openView("sources")}>真实性规则 ↗</button>
-            </div>
-          </div>
-          <div className="signal-orbit" aria-hidden="true">
-            <div className="orbit orbit-one" />
-            <div className="orbit orbit-two" />
-            <div className="orbit-core"><b>{games.length}</b><span>条核验档案</span></div>
-            <i className="signal-dot dot-one" />
-            <i className="signal-dot dot-two" />
-            <i className="signal-dot dot-three" />
-          </div>
-        </section>
-
-        <section className="signal-ticker" aria-label="最新情报">
-          <span className="live-dot">LIVE</span>
-          <div>
-            <strong>{signals[0].title}</strong>
-            <p>{signals[0].detail}</p>
-          </div>
-          <a href={signals[0].sourceUrl} target="_blank" rel="noreferrer">官方出处 ↗</a>
-        </section>
-
-        <section className="spotlight-section">
-          <div className="section-title-row">
-            <div><p className="eyebrow">NEXT ON YOUR RADAR</p><h2>本周焦点</h2></div>
-            <span className="snapshot-note">所有日期核验于 {SNAPSHOT_DATE}</span>
-          </div>
-          <article className="spotlight-card">
-            <button className="spotlight-art-button" type="button" onClick={() => setSelected(heroGame)} aria-label={`查看${heroGame.title}`}>
-              <GameArtwork game={heroGame} />
-              <span className="countdown-badge">{countdownLabel(heroGame)}</span>
-            </button>
-            <div className="spotlight-copy">
-              <div className="card-kicker">
-                <span className={`status status-${heroGame.status}`}>{statusLabels[heroGame.status]}</span>
-                <span>{heroGame.country} · {heroGame.developer}</span>
-              </div>
-              <h3>{heroGame.title}</h3>
-              <p className="original-title">{heroGame.originalTitle}</p>
-              <p className="game-summary">{heroGame.summary}</p>
-              <div className="fit-note"><span>WHY THIS</span><p>{heroGame.fit}</p></div>
-              <ScoreBars scores={scoreFor(heroGame)} />
-              <footer>
-                <div><span>发售日</span><strong>{heroGame.dateLabel}</strong></div>
-                <div className="platform-list">{heroGame.platforms.map((item) => <span key={item}>{platformLabels[item]}</span>)}</div>
-                <button type="button" onClick={() => setSelected(heroGame)}>打开完整档案 <b>↗</b></button>
-              </footer>
-            </div>
-          </article>
-        </section>
-
-        <section className="catalog-section" id="catalog">
-          <div className="section-title-row catalog-heading">
-            <div><p className="eyebrow">VERIFIED CATALOG</p><h2>发售雷达</h2></div>
-            <p>已发售、定档与未定档严格分开；没有日期时不做猜测。</p>
-          </div>
-          <div className="filter-panel">
-            <div className="status-tabs" aria-label="状态筛选">
-              {([
-                ["all", "全部"],
-                ["released", "已发售"],
-                ["upcoming", "待发售"],
-                ["development", "开发中"],
-              ] as Array<[StatusFilter, string]>).map(([value, label]) => (
-                <button className={status === value ? "active" : ""} type="button" key={value} onClick={() => setStatus(value)}>{label}<small>{value === "all" ? games.length : games.filter((game) => game.status === value).length}</small></button>
-              ))}
-            </div>
-            <div className="filter-controls">
-              <label><span>平台</span><select value={platform} onChange={(event) => setPlatform(event.target.value as "all" | Platform)}><option value="all">全部平台</option>{Object.entries(platformLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>
-              <label><span>地区</span><select value={region} onChange={(event) => setRegion(event.target.value as typeof region)}><option value="all">全部地区</option><option value="日本">日本</option><option value="欧美">欧美</option><option value="其他">其他</option></select></label>
-              <label><span>排序</span><select value={sort} onChange={(event) => setSort(event.target.value as SortKey)}><option value="recommend">编辑推荐</option><option value="date-asc">日期由近到远</option><option value="date-desc">日期由远到近</option><option value="score">四维均分</option></select></label>
-              <label className="catalog-search"><span className="visually-hidden">搜索档案</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索游戏 / 公司 / 类型" /><b>⌕</b></label>
-            </div>
-          </div>
-
-          <div className="result-row"><span>显示 <b>{filtered.length}</b> / {games.length}</span>{(query || status !== "all" || platform !== "all" || region !== "all") && <button type="button" onClick={() => { setQuery(""); setStatus("all"); setPlatform("all"); setRegion("all"); }}>清除筛选 ×</button>}</div>
-          {filtered.length ? (
-            <div className="game-grid">
-              {filtered.map((game) => (
-                <article className="catalog-card" key={game.id}>
-                  <button className="card-art-button" type="button" onClick={() => setSelected(game)} aria-label={`打开${game.title}档案`}>
-                    <GameArtwork game={game} compact />
-                    <span className={`card-status status-${game.status}`}>{statusLabels[game.status]}</span>
-                    <span className="card-countdown">{countdownLabel(game)}</span>
-                  </button>
-                  <div className="catalog-card-copy">
-                    <div className="catalog-meta"><span>{game.country}</span><span>{game.signal}</span><span>{game.dateLabel}</span></div>
-                    <h3><button type="button" onClick={() => setSelected(game)}>{game.title}</button></h3>
-                    <p className="original-title">{game.originalTitle}</p>
-                    <p className="card-summary">{game.summary}</p>
-                    <div className="tag-row">{game.genres.slice(0, 3).map((genre) => <span key={genre}>{genre}</span>)}</div>
-                    <ScoreBars scores={scoreFor(game)} compact />
-                    <footer>
-                      <div className="platform-list">{game.platforms.map((item) => <span key={item}>{platformLabels[item]}</span>)}</div>
-                      <button className={wishlist.includes(game.id) ? "wish-button active" : "wish-button"} type="button" onClick={() => toggleWishlist(game.id)} aria-label={wishlist.includes(game.id) ? `移除${game.title}愿望单` : `将${game.title}加入愿望单`}>{wishlist.includes(game.id) ? "♥" : "♡"}</button>
-                    </footer>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : <div className="empty-state"><span>NO SIGNAL</span><h3>没有符合这些条件的档案</h3><p>试试放宽平台、地区或状态筛选。</p></div>}
-        </section>
-
-        <section className="intel-section">
-          <div className="section-title-row">
-            <div><p className="eyebrow">SOURCE INTELLIGENCE</p><h2>情报变更记录</h2></div>
-            <button className="text-action" onClick={() => openView("sources")}>查看全部来源 ↗</button>
-          </div>
-          <div className="intel-grid">
-            {signals.slice(0, 4).map((signal, index) => (
-              <article key={signal.id}>
-                <span className="intel-index">0{index + 1}</span>
-                <div><p>{signal.date.replaceAll("-", ".")} · {signal.kind}</p><h3>{signal.title}</h3><span>{signal.detail}</span></div>
-                <a href={signal.sourceUrl} target="_blank" rel="noreferrer" aria-label={`打开${signal.sourceLabel}`}>↗</a>
-              </article>
-            ))}
-          </div>
-        </section>
-      </>
-    );
-  }
-
-  function renderCalendar() {
-    const dated = games.filter((game) => game.releaseDate).sort((a, b) => a.releaseDate!.localeCompare(b.releaseDate!));
-    const groups = dated.reduce<Record<string, Game[]>>((acc, game) => {
-      const month = game.releaseDate!.slice(0, 7);
-      (acc[month] ??= []).push(game);
-      return acc;
-    }, {});
-    return (
-      <section className="subpage">
-        <header className="subpage-hero"><p className="eyebrow">RELEASE CALENDAR</p><h1>发售日历</h1><p>用一条连续时间线看清已经发生、即将到来，以及仍没有日期的计划。</p></header>
-        <div className="calendar-layout">
-          <aside><strong>{dated.length}</strong><span>个已确认日期</span><strong>{games.filter((game) => !game.releaseDate).length}</strong><span>个未定档项目</span><small>快照 {SNAPSHOT_DATE}</small></aside>
-          <div className="month-list">
-            {Object.entries(groups).map(([month, monthGames]) => (
-              <section key={month} className="month-group">
-                <header><span>{month.slice(0, 4)}</span><strong>{month.slice(5)}</strong><i /></header>
-                <div>{monthGames.map((game) => <button type="button" key={game.id} onClick={() => setSelected(game)}><time>{game.releaseDate!.slice(8)}</time><span><b>{game.title}</b><small>{game.originalTitle}</small></span><em className={`status-${game.status}`}>{statusLabels[game.status]}</em><strong>{game.platforms.map((item) => platformLabels[item]).join(" · ")}</strong><i>↗</i></button>)}</div>
-              </section>
-            ))}
-            <section className="month-group undated"><header><span>TBA</span><strong>∞</strong><i /></header><div>{games.filter((game) => !game.releaseDate).map((game) => <button type="button" key={game.id} onClick={() => setSelected(game)}><time>—</time><span><b>{game.title}</b><small>{game.originalTitle}</small></span><em className="status-development">开发中</em><strong>{game.platforms.map((item) => platformLabels[item]).join(" · ")}</strong><i>↗</i></button>)}</div></section>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
-  function renderMine() {
-    const byShelf = (value: ShelfStatus) => personalGames.filter((game) => shelf[game.id] === value);
-    return (
-      <section className="subpage mine-page">
-        <header className="subpage-hero"><p className="eyebrow">PERSONAL SHELF</p><h1>我的游戏架</h1><p>愿望、游玩状态、四维评分与私人笔记只保存在当前浏览器。</p></header>
-        <div className="personal-stats">
-          <div><strong>{wishlist.length}</strong><span>愿望单</span></div>
-          <div><strong>{byShelf("playing").length}</strong><span>正在玩</span></div>
-          <div><strong>{byShelf("finished").length}</strong><span>已通关</span></div>
-          <div><strong>{Object.keys(ratings).length}</strong><span>自定义评分</span></div>
-        </div>
-        {personalGames.length ? (
-          <div className="personal-list">
-            {personalGames.map((game) => <article key={game.id}><GameArtwork game={game} compact /><div><span>{shelf[game.id] ? shelfLabels[shelf[game.id]] : "愿望单"}</span><h2>{game.title}</h2><p>{notes[game.id] || game.fit}</p><ScoreBars scores={scoreFor(game)} compact /></div><button type="button" onClick={() => setSelected(game)}>管理档案 ↗</button></article>)}
-          </div>
-        ) : <div className="empty-state mine-empty"><span>EMPTY SHELF</span><h3>你的游戏架还是空的</h3><p>回到雷达，把感兴趣的游戏加入愿望单，或在档案里设置游玩状态。</p><button className="primary-action" onClick={() => openView("radar")}>去发现游戏 →</button></div>}
-      </section>
-    );
-  }
-
-  function renderSources() {
-    return (
-      <section className="subpage sources-page">
-        <header className="subpage-hero"><p className="eyebrow">TRUTH & SOURCES</p><h1>真实性台账</h1><p>“知道什么”和“不知道什么”同样重要。这里解释本站如何处理日期、平台、访谈与传闻。</p></header>
-        <div className="truth-principles">
-          <article><span>01</span><h2>官宣优先</h2><p>发售日与平台优先引用开发商、发行商或平台方。转载只用于定位原始出处，不反向替代官方。</p></article>
-          <article><span>02</span><h2>新信息覆盖旧信息</h2><p>同一游戏发生延期或提前时，使用发布时间更晚的官方信息，同时保留变更记录。</p></article>
-          <article><span>03</span><h2>未定档就是未定档</h2><p>没有官方日期就显示 TBA。媒体爆料必须独立标为“未证实”，当前快照没有达到收录门槛的传闻。</p></article>
-          <article><span>04</span><h2>评分属于你</h2><p>四维数字是可编辑的个人参考，不冒充媒体均分或客观结论；待发售作品明确标为期待值。</p></article>
-        </div>
-        <div className="source-ledger">
-          <header><div><p className="eyebrow">PRIMARY SOURCE LEDGER</p><h2>{games.length} 条游戏来源</h2></div><span>最近核验 {SNAPSHOT_DATE}</span></header>
-          <div className="ledger-table">
-            <div className="ledger-head"><span>作品</span><span>证据</span><span>状态</span><span>核验日</span><span>出处</span></div>
-            {games.map((game) => <div className="ledger-row" key={game.id}><span><b>{game.title}</b><small>{game.developer}</small></span><span>{game.source.evidence}</span><span><em className={`status-${game.status}`}>{statusLabels[game.status]}</em></span><span>{game.source.checkedAt}</span><span><a href={game.source.url} target="_blank" rel="noreferrer">{game.source.label} ↗</a></span></div>)}
-          </div>
-        </div>
-        <div className="update-guide"><div><p className="eyebrow">MAINTENANCE</p><h2>后续更新怎么做</h2></div><p>所有游戏都集中在一个结构化数据文件中。新增作品只需补充名称、状态、平台、四维初始值和官方来源；日期验证测试会阻止缺少出处或把未定档写成确定日期的记录进入发布版本。</p></div>
-      </section>
-    );
-  }
-
-  return (
-    <main className="site-shell">
-      <header className="topbar">
-        <button className="brand" type="button" onClick={() => openView("radar")} aria-label="发售信号首页"><span className="brand-mark">RS</span><span>RELEASE SIGNAL</span></button>
-        <nav aria-label="主要导航">
-          {([['radar', '雷达'], ['calendar', '日历'], ['mine', '我的'], ['sources', '来源']] as Array<[View, string]>).map(([value, label]) => <button className={view === value ? "active" : ""} type="button" key={value} onClick={() => openView(value)}>{label}</button>)}
-        </nav>
-        <div className="topbar-actions"><label className="top-search"><span className="visually-hidden">搜索游戏</span><input value={query} onChange={(event) => { setQuery(event.target.value); if (view !== "radar") setView("radar"); }} placeholder="搜索新世界" /><b>⌕</b></label><button className="shelf-shortcut" type="button" onClick={() => openView("mine")}><span>♡</span><b>{wishlist.length}</b></button></div>
-      </header>
-
-      {view === "radar" && renderRadar()}
-      {view === "calendar" && renderCalendar()}
-      {view === "mine" && renderMine()}
-      {view === "sources" && renderSources()}
-
-      <footer className="site-footer"><div><span className="brand-mark">RS</span><p><b>发售信号</b><small>个人游戏发布与游玩档案</small></p></div><p>内容快照 {SNAPSHOT_DATE} · 游戏资料与名称归各权利人所有<br />只记录可追溯信号，不把期待写成事实。</p><button type="button" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>回到顶部 ↑</button></footer>
-
-      <nav className="mobile-nav" aria-label="移动端导航">{([['radar', '⌁', '雷达'], ['calendar', '▦', '日历'], ['mine', '♡', '我的'], ['sources', '✓', '来源']] as Array<[View, string, string]>).map(([value, icon, label]) => <button className={view === value ? "active" : ""} type="button" key={value} onClick={() => openView(value)}><span>{icon}</span>{label}</button>)}</nav>
-
-      {selected && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelected(null); }}>
-          <section className="game-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-            <button className="modal-close" type="button" onClick={() => setSelected(null)} aria-label="关闭档案">×</button>
-            <div className="modal-art"><GameArtwork game={selected} /><span className={`status status-${selected.status}`}>{statusLabels[selected.status]}</span></div>
-            <div className="modal-content">
-              <header><p>{selected.country} · {selected.developer}</p><h2 id="modal-title">{selected.title}</h2><span>{selected.originalTitle}</span></header>
-              <div className="modal-platforms"><strong>{selected.dateLabel}</strong>{selected.platforms.map((item) => <span key={item}>{platformLabels[item]}</span>)}<em>{selected.signal}</em></div>
-              <p className="modal-summary">{selected.summary}</p>
-              <div className="modal-notes"><div><span>适合你，如果</span><p>{selected.fit}</p></div><div><span>先知道</span><p>{selected.caution}</p></div></div>
-              <section className="rating-editor">
-                <header><div><span>PERSONAL MATRIX</span><h3>我的四维评价</h3></div><em>{ratings[selected.id] ? "我的评分" : selected.scoreMode}</em></header>
-                {scoreKeys.map(({ key, label }) => <label key={key}><span>{label}</span><input type="range" min="1" max="10" step="0.1" value={scoreFor(selected)[key]} onChange={(event) => updateRating(selected, key, Number(event.target.value))} style={{ "--range": `${scoreFor(selected)[key] * 10}%` } as CSSProperties} /><strong>{scoreFor(selected)[key].toFixed(1)}</strong></label>)}
-                <div className="rating-average"><span>四维均值</span><strong>{average(scoreFor(selected)).toFixed(1)}</strong><button type="button" onClick={() => setRatings((current) => { const next = { ...current }; delete next[selected.id]; return next; })}>恢复初始参考</button></div>
-              </section>
-              <label className="note-editor"><span>私人笔记</span><textarea rows={3} maxLength={500} value={notes[selected.id] ?? ""} onChange={(event) => setNotes((current) => ({ ...current, [selected.id]: event.target.value }))} placeholder="为什么想玩？玩到哪里？对剧情与音乐有什么感觉……" /><small>{(notes[selected.id] ?? "").length}/500 · 自动保存在本机</small></label>
-              <section className="source-proof"><div><span>PRIMARY SOURCE</span><strong>{selected.source.label}</strong><p>{selected.source.evidence}</p><small>核验于 {selected.source.checkedAt}</small></div><a href={selected.source.url} target="_blank" rel="noreferrer">打开官方出处 ↗</a></section>
-              <footer className="modal-actions"><button className={wishlist.includes(selected.id) ? "secondary-action active" : "secondary-action"} type="button" onClick={() => toggleWishlist(selected.id)}>{wishlist.includes(selected.id) ? "♥ 已在愿望单" : "♡ 加入愿望单"}</button><label><span className="visually-hidden">游玩状态</span><select value={shelf[selected.id] ?? ""} onChange={(event) => { const value = event.target.value as ShelfStatus | ""; setShelf((current) => { const next = { ...current }; if (value) next[selected.id] = value; else delete next[selected.id]; return next; }); announce(value ? `已标记：${shelfLabels[value]}` : "已清除游玩状态"); }}><option value="">设置游玩状态</option>{Object.entries(shelfLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><button className="primary-action" type="button" onClick={() => { announce("评分与笔记已保存在本机"); setSelected(null); }}>保存档案 ✓</button></footer>
-            </div>
-          </section>
-        </div>
-      )}
-
-      <div className={toast ? "toast visible" : "toast"} role="status"><span>✓</span>{toast}</div>
-    </main>
-  );
+  return <IPNavigation.Provider value={openIP}><div className={`app-shell density-${density}`}><a className="skip-link" href="#main">跳转到内容</a><aside className="sidebar"><button className="brand" onClick={() => navigate("discover")}><span className="brand-mark"><Icon name="game"/></span><span>发售信号<small>RELEASE SIGNAL</small></span></button><p className="sidebar-label">你的游戏空间</p><nav aria-label="主要导航">{navigation.map((item) => <button className={view === item.id ? "active" : ""} key={item.id} onClick={() => navigate(item.id)} aria-current={view === item.id ? "page" : undefined}><Icon name={item.icon}/>{item.label}{item.id === "library" && <small>{Object.keys(library).length}</small>}</button>)}</nav><div className="sidebar-bottom"><div className="sidebar-note"><span className="online-indicator"/>公开来源 · 持续更新<small>{cloud.session.user ? `@${cloud.session.user.login} · ${cloud.syncState === "synced" ? "已云同步" : "查看同步状态"}` : "登录后可跨设备同步"}</small></div><button className={view === "settings" ? "active" : ""} onClick={() => navigate("settings")}><Icon name="settings"/>设置与数据</button></div></aside>
+    <div className="workspace"><header className="app-header"><div className="breadcrumb">我的空间 <span>/</span> {navigation.find((item) => item.id === view)?.label || (view === "ip" ? franchiseById(hubId)?.name || "IP 频道" : view === "notifications" ? "通知中心" : "设置与数据")}</div><IPSearch query={query} catalog={searchable} inputRef={searchRef} onChange={(value) => { setQuery(value); setOnlineResults([]); setPage(1); if (!["discover", "library", "calendar", "news"].includes(view)) setView("discover"); }}/><button className="icon-button notification-button" aria-label={`通知中心，${ipStore.unread} 条未读`} onClick={() => navigate("notifications")}><Icon name="bell"/>{ipStore.unread > 0 && <span>{ipStore.unread > 99 ? "99+" : ipStore.unread}</span>}</button><button className="icon-button" onClick={() => setTheme(theme === "light" ? "dark" : "light")} aria-label={theme === "light" ? "切换为深色主题" : "切换为浅色主题"}><Icon name={theme === "light" ? "moon" : "sun"}/></button><button className="profile-button" onClick={() => navigate("settings")} aria-label="个人设置">我</button></header>
+      <main id="main" className="main-content">{ipStore.error && <div className="notice error" role="alert">{ipStore.error}<button disabled={ipStore.busy} onClick={() => void ipStore.retry()}>重试云端读取</button></div>}{view === "discover" && <div className="home-feed-tabs" role="group" aria-label="首页内容"><button className={homeTab === "discover" ? "active" : ""} aria-pressed={homeTab === "discover"} onClick={() => setHomeTab("discover")}>发现游戏</button><button className={homeTab === "following" ? "active" : ""} aria-pressed={homeTab === "following"} onClick={() => setHomeTab("following")}>我的关注<small>{ipStore.following.length}</small></button></div>}{view === "discover" && homeTab === "following" && <FollowingFeed query={query}/>}{storageError && <div className="notice error" role="alert">{storageError}<button onClick={() => navigate("settings")}>打开数据管理</button></div>}
+        {((view === "discover" && homeTab === "discover") || view === "library") && <><div className="page-heading"><div><p className="eyebrow">{view === "discover" ? "DISCOVER YOUR NEXT GAME" : "YOUR PERSONAL COLLECTION"}</p><h1>{view === "discover" ? "发现下一款好游戏" : "我的游戏架"}</h1><p>{view === "discover" ? "从新作到下一次冒险，找到值得投入的世界。" : "收藏、游玩进度、四维评价，都在这里。"}</p></div>{view === "discover" ? <button className="button" onClick={() => void refresh()} disabled={syncState === "loading"}><Icon name="refresh" className={syncState === "loading" ? "spin" : ""}/>{syncState === "loading" ? "正在更新" : "更新游戏"}</button> : <button className="button" onClick={() => navigate("settings")}><Icon name="download"/>备份记录</button>}</div>
+          {view === "discover" ? <><div className="catalog-summary"><span><strong>{catalog.length}</strong> 部收录</span><span><strong>{counts.upcoming}</strong> 部将发布</span><span><strong>{Object.keys(library).length}</strong> 部在游戏架</span><span className="updated-text">{feed.updatedAt ? `目录更新 ${feed.updatedAt.slice(0, 10)}` : `精选快照 ${SNAPSHOT_DATE}`}</span></div>{syncState === "error" && <div className="notice">新数据暂时无法更新，已保留上次可用目录。<button onClick={() => void refresh()}>重试</button></div>}<div className="status-tabs" role="group" aria-label="发售状态筛选">{(["all", "released", "upcoming", "development", "check"] as const).map((value) => <button key={value} className={status === value ? "active" : ""} aria-pressed={status === value} onClick={() => { setStatus(value); setPage(1); }}>{value === "all" ? "全部游戏" : releaseLabels[value]}<small>{value === "all" ? catalog.length : counts[value]}</small></button>)}</div></> : <div className="status-tabs" role="group" aria-label="游戏架筛选">{(["all", "wishlist", "playing", "finished", "paused"] as const).map((value) => <button key={value} className={shelfFilter === value ? "active" : ""} aria-pressed={shelfFilter === value} onClick={() => { setShelfFilter(value); setPage(1); }}>{value === "all" ? "全部收藏" : libraryLabels[value]}<small>{value === "all" ? Object.keys(library).length : shelfCounts[value]}</small></button>)}</div>}
+          {view === "discover" && !query && latestDirect && <div className="discovery-sources"><button className="text-button" onClick={() => { clearFilters(); setQuery(`Nintendo Direct ${latestDirect.date}`); }}>查看 {latestDirect.title} 的游戏</button><span>新作目录每日更新；系列全量索引每周核对</span></div>}{filters()}{view === "discover" && query.length > 1 && onlineState === "ready" && <div className="search-sources" aria-live="polite">{searchSources.map((source) => <span key={source.name} className={source.ok ? "" : "danger"}>{source.name} · {source.ok ? `${source.count} 条匹配` : "暂不可用，已保留其他来源结果"}</span>)}</div>}{onlineState === "error" && query.length > 1 && view === "discover" && <div className="notice">在线搜索暂时不可用，以下为本地目录结果。<button onClick={() => setSearchRetry((value) => value + 1)}>重试搜索</button></div>}
+          <div className={query ? "search-results-layout" : ""}>{query && <IPFacets games={beforeIP} query={query} value={ipFilter} onChange={pickIP}/>}<div className="search-results-main">{visible.length ? <><div className="game-grid">{visible.map(renderCard)}</div>{pagination()}</> : <EmptyState title={view === "library" && !Object.keys(library).length ? "从第一款想玩的游戏开始" : "没有找到匹配的游戏"} description={view === "library" && !Object.keys(library).length ? "在发现页点击「想玩」，就能记录游玩进度、评分和笔记。" : onlineState === "loading" ? "正在检索更多游戏，请稍候。" : "支持中日英名称；可切换平台或清除筛选，来源缺失时也欢迎提供官方链接。"} action={<button className="button primary" onClick={() => view === "library" && !Object.keys(library).length ? navigate("discover") : clearFilters()}>{view === "library" && !Object.keys(library).length ? "去发现游戏" : "清除筛选"}</button>}/>}</div></div>
+          {view === "discover" && <p className="catalog-footnote">名称支持中日英原文检索；未取得可靠名称的语言不猜译。发售时间以各地区商店和官方公告为准。「待复核」表示原计划日期已过、尚无新证据；公共索引作品可先收藏，再查看来源确认。</p>}
+        </>}
+        {view === "calendar" && <CalendarView catalog={mergeCatalog(searchable, Object.values(library).map((entry) => entry.game))} query={query} onOpen={setSelected} onUndated={() => { navigate("discover"); setStatus("development"); }}/>}
+        {view === "news" && <LiveNewsView query={query} catalog={searchable} onOpen={setSelected} ipFilter={ipFilter} onIPFilter={pickIP} platform={platform} onPlatform={setPlatform}/>}
+        {view === "ips" && <IPDirectory catalog={searchable}/>}
+        {view === "ip" && <IPHub key={hubId} id={hubId} catalog={searchable} onOpen={setSelected} onBack={() => navigate("ips")}/>}
+        {view === "notifications" && <NotificationCenter/>}
+        {view === "settings" && <SettingsView account={<AccountPanel cloud={cloud}/>} cloudUser={cloud.session.user?.id} library={library} onLibrary={setLibrary} storageError={storageError} clearError={cloud.clearError} theme={theme} onTheme={setTheme} scale={scale} onScale={setScale} density={density} onDensity={setDensity} feed={feed} syncState={syncState} refresh={refresh} notify={setToast}/>}
+      </main><footer className="app-footer"><span>发售信号 · 你的下一次冒险</span><span>资料和图片归各权利人所有 · 登录后支持云同步</span></footer></div>
+    <nav className="mobile-nav" aria-label="移动端导航">{[...navigation, { id: "settings" as View, label: "设置", icon: "settings" }].map((item) => <button key={item.id} onClick={() => navigate(item.id)} className={view === item.id ? "active" : ""} aria-current={view === item.id ? "page" : undefined}><Icon name={item.icon}/><span>{item.id === "library" ? "游戏架" : item.id === "news" ? "情报" : item.label.replace("游戏", "")}</span></button>)}</nav>
+    {selected && <GameDetail key={selected.id} game={searchable.find((game) => game.id === selected.id) || selected} entry={library[selected.id]} disabled={!ready || cloud.cacheBlocked || (!!storageError && !cloud.session.user)} onClose={() => setSelected(null)} onSave={(status, scores, notes) => { setLibrary((current) => ({ ...current, [selected.id]: { game: searchable.find((game) => game.id === selected.id) || selected, status, scores, notes, updatedAt: new Date().toISOString() } })); setToast(cloud.session.user ? "修改已保存，正在同步到云端" : "游戏记录已保存到本机"); }} onRemove={() => { setLibrary((current) => { const next = { ...current }; delete next[selected.id]; return next; }); setToast("已从游戏架移除"); setSelected(null); }}/>}
+    {toast && <div className="toast" role="status">{toast}<button onClick={() => setToast("")} aria-label="关闭通知"><Icon name="close"/></button></div>}
+  </div></IPNavigation.Provider>;
 }

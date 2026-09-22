@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1788656585582,
+      "tag": "0000_square_amphibian",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1788656657366,
+      "tag": "0001_puzzling_slyde",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1789640717483,
+      "tag": "0002_calm_katie_power",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1789647670239,
+      "tag": "0003_bitter_magik",
+      "breakpoints": true
+    }
+  ]
+}

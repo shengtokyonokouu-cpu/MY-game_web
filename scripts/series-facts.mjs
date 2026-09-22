@@ -1,0 +1,12 @@
+import { writeFile } from 'node:fs/promises';
+import { sparql, provenance } from './catalog-source.mjs';
+const scope = '?g wdt:P31/wdt:P279* wd:Q7889; wdt:P179 ?s.';
+const facts = await sparql(`SELECT DISTINCT ?g ?p ?v WHERE { ${scope} VALUES ?p { wdt:P577 wdt:P400 wdt:P178 wdt:P123 wdt:P674 wdt:P18 wdt:P856 wdt:P144 wdt:P629 wdt:P31 } ?g ?p ?v. }`);
+await writeFile('work/series-facts.json', JSON.stringify(facts));
+console.log('Game facts:', facts.length);
+const names = await sparql(`SELECT DISTINCT ?g ?kind ?name (LANG(?name) AS ?lang) WHERE { ${scope} VALUES ?kind { rdfs:label skos:altLabel schema:description } ?g ?kind ?name. FILTER(LANG(?name) IN ('en','mul','ja','zh','zh-cn','zh-hans','zh-tw','zh-hant')) }`);
+await writeFile('work/series-names.json', JSON.stringify(names));
+console.log('Game multilingual names:', names.length);
+const pages = await sparql(`SELECT DISTINCT ?g ?page WHERE { ${scope} ?page schema:about ?g; schema:isPartOf <https://en.wikipedia.org/>. }`);
+await writeFile('work/series-pages.json', JSON.stringify(pages));
+await writeFile('work/facts-provenance.json', JSON.stringify(provenance));

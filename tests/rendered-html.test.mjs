@@ -20,10 +20,19 @@ test("server-renders the Release Signal application", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>发售信号｜个人新游雷达<\/title>/);
-  assert.match(html, /下一段值得/);
-  assert.match(html, /近期信号|发售雷达/);
-  assert.match(html, /光与影：33号远征队/);
-  assert.match(html, /情报变更记录/);
-  assert.match(html, /property="og:image"[^>]+content="https?:\/\/[^"]+\/og\.png"/);
+  assert.match(html, /<html[^>]+data-theme="light"/);
+  assert.match(html, /发现下一款好游戏/);
+  assert.match(html, /光[与與]影：33[号號][远遠]征[队隊]/);
+  assert.equal((html.match(/class="game-card"/g) || []).length, 12, "first page should contain usable game cards");
+  assert.match(html, /\/covers\//);
+  assert.match(html, /aria-label="游戏目录分页"/);
+  assert.match(html, /我的游戏架/);
+  assert.match(html, /设置与数据/);
+  assert.match(html, /IP 频道/);
+  assert.match(html, /我的关注/);
+  assert.match(html, /role="combobox"/);
+  assert.match(html, /通知中心/);
+  assert.match(html, /切换为深色主题/);
+  assert.match(html, /property="og:image"[^>]+content="https?:\/\/[^"]+\/og-light\.png"/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
