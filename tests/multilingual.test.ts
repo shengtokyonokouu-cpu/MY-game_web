@@ -67,11 +67,12 @@ test("Steam uses one app identity across three languages and rejects non-game ap
   try { const items = await searchGames("テスト"); assert.equal(items.length, 1); assert.equal(items[0].id, "steam-1"); assert.equal(items[0].names?.en?.text, "Test Game"); assert.equal(items[0].releaseDate, null); assert.equal(used.size, 3); }
   finally { globalThis.fetch = original; }
 });
-test("Japanese Wikipedia game categories and linked titles are recognized", async () => {
+test("Japanese Wikipedia results require game entity evidence, not game-related categories", async () => {
   const original = globalThis.fetch;
   globalThis.fetch = async (input) => {
+    if(new URL(String(input)).hostname==="www.wikidata.org")return Response.json({entities:{Q1:{claims:{P31:[{mainsnak:{datavalue:{value:{id:"Q7889"}}}}]}}}});
     assert.equal(new URL(String(input)).hostname, "ja.wikipedia.org");
-    return Response.json({ query: { pages: [{ title: "テストゲーム", categories: [{ title: "Category:2027年のコンピュータゲーム" }], langlinks: [{ lang: "en", title: "Test Game" }, { lang: "zh", title: "测试游戏" }] }, { title: "薬屋のひとりごと", categories: [{ title: "Category:日本の小説" }] }] } });
+    return Response.json({ query: { pages: [{ title: "テストゲーム", pageprops:{wikibase_item:"Q1"}, categories: [{ title: "Category:2027年のコンピュータゲーム" }], langlinks: [{ lang: "en", title: "Test Game" }, { lang: "zh", title: "测试游戏" }] }, { title: "薬屋のひとりごと", categories: [{ title: "Category:日本の小説" }] }] } });
   };
   try { const items = await searchWikiGames("テストゲーム"); assert.equal(items.length, 1); assert.equal(items[0].title, "测试游戏"); assert.equal(items[0].names?.ja?.text, "テストゲーム"); }
   finally { globalThis.fetch = original; }

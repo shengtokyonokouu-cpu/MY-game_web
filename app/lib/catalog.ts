@@ -2,11 +2,17 @@ import { games, type ScoreSet } from "../data/games.ts";
 import { verifiedAnnouncements } from "../data/announcements.ts";
 import coverData from "../data/covers.json" with { type: "json" };
 import { identityNames, mergeNames, searchTokensMatch, type GameNames } from "./game-names.ts";
+import { verifiedWorkFacts } from "./verified-work-facts.ts";
+import { canRecordGame } from "./game-identity.ts";
 
 export type ReleaseState = "released" | "upcoming" | "development" | "check";
 export type LibraryStatus = "wishlist" | "playing" | "finished" | "paused";
 export type CatalogGame = {
   id: string;
+  entityKind?: "game" | "character" | "series" | "unknown";
+  ipEvidence?: "entity" | "official";
+  modes?: string[];
+  chineseSupport?: { text: string; sourceUrl: string };
   entityId?: string;
   ipIds?: string[];
   year?: number;
@@ -37,7 +43,7 @@ export type CatalogGame = {
   source: { label: string; url: string; checkedAt: string; evidence: string; type: "official" | "index" | "store" };
 };
 export type CatalogFeed = { items: CatalogGame[]; updatedAt: string; years: number[]; partial?: boolean; stale?: boolean; sources?: { name: string; ok: boolean; count: number }[] };
-export type PersonalEntry = { game: CatalogGame; status: LibraryStatus; scores: Partial<ScoreSet>; notes: string; updatedAt: string };
+export type PersonalEntry = { game: CatalogGame; status: LibraryStatus; scores: Partial<ScoreSet>; expectation?: number; reviewConfirmed?: boolean; notes: string; updatedAt: string };
 export type Library = Record<string, PersonalEntry>;
 export const LIBRARY_KEY = "release-signal-library-v2";
 export const scoreAxes = [{ key: "gameplay", label: "玩法" }, { key: "story", label: "剧情" }, { key: "visuals", label: "画面" }, { key: "music", label: "音乐" }] as const;
@@ -70,7 +76,8 @@ export function mergeCatalog(primary: CatalogGame[], extra: CatalogGame[]) {
   const output: CatalogGame[] = [];
   const titles = new Map<string, number>();
   const ids = new Map<string, number>();
-  for (const game of [...primary, ...extra]) {
+  for (const raw of [...primary, ...extra]) {
+    const game=verifiedWorkFacts(raw);
     const existing = identityNames(game).map((title) => titles.get(normalizedTitle(title))).find((index) => index !== undefined);
     const existingIndex = existing ?? ids.get(game.id);
     if (existingIndex !== undefined) {
@@ -78,8 +85,10 @@ export function mergeCatalog(primary: CatalogGame[], extra: CatalogGame[]) {
       const current = output[existingIndex];
       const names = mergeNames(current.names, game.names);
       output[existingIndex] = { ...current, image: current.image || game.image, names,
+        entityKind: current.entityKind || game.entityKind, ipEvidence: current.ipEvidence || game.ipEvidence,
+        modes: current.modes || game.modes, chineseSupport: current.chineseSupport || game.chineseSupport,
         entityId:current.entityId||game.entityId,year:current.year||game.year,editionKind:current.editionKind||game.editionKind,
-        ipIds:[...new Set([...(current.ipIds||[]),...(game.ipIds||[])])],subseriesIds:[...new Set([...(current.subseriesIds||[]),...(game.subseriesIds||[])])],characterIds:[...new Set([...(current.characterIds||[]),...(game.characterIds||[])])],
+        ipIds:[...new Set([...(current.ipEvidence ? current.ipIds||[] : []),...(game.ipEvidence ? game.ipIds||[] : [])])],subseriesIds:[...new Set([...(current.subseriesIds||[]),...(game.subseriesIds||[])])],characterIds:[...new Set([...(current.characterIds||[]),...(game.characterIds||[])])],
         title: names.zh?.text || current.title,
         originalTitle: names.en?.text || current.originalTitle,
         searchTerms: Array.from(new Set([...identityNames(current), ...identityNames(game), ...(current.searchTerms || []), ...(game.searchTerms || [])])),
@@ -93,11 +102,19 @@ export function mergeCatalog(primary: CatalogGame[], extra: CatalogGame[]) {
     ids.set(game.id, index);
     identityNames(game).forEach((title) => titles.set(normalizedTitle(title), index));
   }
-  return output;
+  return output.map(verifiedWorkFacts);
 }
 export function averageScore(scores?: Partial<ScoreSet>) {
   const values = scoreAxes.map(({ key }) => scores?.[key]).filter((value): value is number => typeof value === "number");
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+export function experienceScore(entry?: PersonalEntry) {
+  // Legacy wishlist scores may have meant anticipation. Keep their values but
+  // exclude them from experience sorting until the player explicitly confirms.
+  return entry && canRecordGame(entry.game) && (entry.reviewConfirmed === true || (entry.reviewConfirmed !== false && entry.status !== "wishlist" && releaseState(entry.game) === "released")) ? averageScore(entry.scores) : null;
+}
+export function changeLibraryStatus(entry: PersonalEntry, status: LibraryStatus): PersonalEntry {
+  return {...entry,status,reviewConfirmed:entry.reviewConfirmed??(experienceScore(entry)!==null),updatedAt:new Date().toISOString()};
 }
 // A new official-language source must not give an already saved game a new ID.
 // Match full names only, keep ambiguous identities separate, and never rewrite
@@ -160,7 +177,10 @@ export function validateLibrary(value: unknown): Library {
       if (score !== undefined && (typeof score !== "number" || !Number.isFinite(score) || score < 1 || score > 10)) throw new Error("评分必须在 1–10 之间。");
       if (score !== undefined) scores[key] = score;
     }
-    result[id] = { game, status: entry.status, notes: entry.notes, scores, updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : new Date().toISOString() };
+    if (entry.expectation !== undefined && (!Number.isInteger(entry.expectation) || entry.expectation < 1 || entry.expectation > 5)) throw new Error("期待评分必须在 1–5 之间。");
+    if (entry.reviewConfirmed !== undefined && typeof entry.reviewConfirmed !== "boolean") throw new Error("备份包含无效的评价状态。");
+    if (game.entityKind !== undefined && !["game", "character", "series", "unknown"].includes(game.entityKind)) throw new Error("备份包含无效的实体类型。");
+    result[id] = { game, status: entry.status, notes: entry.notes, scores, ...(entry.expectation !== undefined ? { expectation: entry.expectation } : {}), ...(entry.reviewConfirmed !== undefined ? { reviewConfirmed: entry.reviewConfirmed } : {}), updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : new Date().toISOString() };
   }
   return result;
 }

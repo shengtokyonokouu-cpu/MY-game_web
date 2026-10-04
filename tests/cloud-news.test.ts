@@ -65,6 +65,11 @@ test("cloud library enforces authentication, CSRF, account ownership and optimis
   assert.equal((await handleLibrary(new Request(`${site}/api/library`, { method: "PUT", headers: { ...a, "Content-Length": "2000001" }, body }), env)).status, 413);
   const remove = await handleLibrary(new Request(`${site}/api/library`, { method: "PUT", headers: a, body: JSON.stringify({ version: 1, entries: {} }) }), env); assert.equal(remove.status, 200);
   const removed = await (await handleLibrary(new Request(`${site}/api/library`, { headers: a }), env)).json(); assert.equal(removed.version, 2); assert.deepEqual(removed.entries, {});
+  const scored={...entry,expectation:4,reviewConfirmed:true};
+  const rated=await handleLibrary(new Request(`${site}/api/library`,{method:"PUT",headers:a,body:JSON.stringify({version:2,entries:{[game.id]:scored}})}),env);
+  assert.equal(rated.status,200);const synced=await rated.json();assert.equal(synced.entries[game.id].expectation,4);assert.equal(synced.entries[game.id].reviewConfirmed,true);
+  const character={...entry,game:{...game,entityKind:"character"}};
+  assert.equal((await handleLibrary(new Request(`${site}/api/library`,{method:"PUT",headers:a,body:JSON.stringify({version:3,entries:{[game.id]:character}})}),env)).status,400);
   assert.equal((await handleAuth(new Request(`${site}/api/auth/logout`, { method: "POST", headers: a }), env)).status, 200);
   assert.equal(await authenticate(new Request(`${site}/api/library`, { headers: a }), env), null);
 });

@@ -54,7 +54,7 @@ test("multi-IP article classification and explicit platform intersection preserv
   assert.equal(majorNewsReason(article("Zelda new trailer", { topic: "rumor" })), null);
 });
 test("IP hub cross filters and pagination and timeline never invent dates", () => {
-  const games: CatalogGame[] = [{ ...curatedGames[0], title: "ゼルダの伝説", originalTitle: "Zelda", names: {}, articleTitle: "Zelda", platforms: ["Switch 2"], declaredStatus: "upcoming", releaseDate: null, dateLabel: "2027 年", releases: undefined }];
+  const games: CatalogGame[] = [{ ...curatedGames[0], ipIds:["zelda"],ipEvidence:"official", title: "ゼルダの伝説", originalTitle: "Zelda", names: {}, articleTitle: "Zelda", platforms: ["Switch 2"], declaredStatus: "upcoming", releaseDate: null, dateLabel: "2027 年", releases: undefined }];
   const items = Array.from({ length: 25 }, (_, i) => article(`Zelda new trailer ${i} for Switch 2`));
   const result = buildIPHub("zelda", games, feed(items), { page: 2, platform: "Switch 2", category: "video" })!;
   assert.equal(result.news.items.length, 12); assert.equal(result.news.pages, 3); assert.equal(result.counts.news, 25); assert.equal(result.games.length, 1);

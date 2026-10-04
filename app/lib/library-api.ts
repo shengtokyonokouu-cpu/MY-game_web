@@ -1,5 +1,6 @@
 import { authenticate, json, safeMutation, type AppEnv } from "./auth.ts";
 import { validateLibrary } from "./catalog.ts";
+import { canRecordGame } from "./game-identity.ts";
 
 export async function handleLibrary(request: Request, env: AppEnv): Promise<Response> {
   const session = await authenticate(request, env); if (!session) return json({ error: "请登录后同步游戏架。" }, 401);
@@ -18,6 +19,8 @@ export async function handleLibrary(request: Request, env: AppEnv): Promise<Resp
     const body = JSON.parse(new TextDecoder().decode(bytes));
     if (!Number.isSafeInteger(body.version) || body.version < 0) return json({ error: "同步版本不正确。" }, 400);
     const entries = validateLibrary({ version: 2, entries: body.entries });
+    const questionable=Object.values(entries).filter(entry=>!canRecordGame(entry.game));
+    if(questionable.length){const previous=await current();if(questionable.some(entry=>JSON.stringify(previous.entries[entry.game.id])!==JSON.stringify(entry)))return json({error:"未核验为游戏的旧记录只能保留或移除，不能新增评分或状态。请重新搜索已核验作品。"},400);}
     if (Object.keys(entries).length > 1000) return json({ error: "每个账号最多同步 1,000 款游戏，请先导出备份。" }, 413);
     const updated = await db.prepare("UPDATE libraries SET document = ?, version = version + 1, updated_at = ? WHERE user_id = ? AND version = ? RETURNING version").bind(JSON.stringify(entries), Date.now(), owner, body.version).first<{ version: number }>();
     if (!updated) return json({ error: "其他设备已更新，请合并后重试。", ...await current() }, 409);

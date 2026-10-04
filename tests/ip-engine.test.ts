@@ -109,7 +109,7 @@ test("expired leases can be reclaimed, stale owners cannot move checkpoints; dyn
   await scanBatch(db, old!, now + 120002);
   assert.equal((await db.prepare("SELECT cursor FROM ip_jobs WHERE id=?").bind(old!.id).first<{ cursor: number }>())?.cursor, 0);
   await scanBatch(db, current!, now + 120003);
-  const value = article(0); const game = { ...curatedGames[0], title: "Test Saga", originalTitle: "Test Saga", articleTitle: "Test Saga", names: {} };
+  const value = article(0); const game = { ...curatedGames[0], ipIds:[ip.id],ipEvidence:"entity" as const,title: "Test Saga", originalTitle: "Test Saga", articleTitle: "Test Saga", names: {} };
   assert.equal(articleFranchises(value, [ip]).length, 1); assert.equal(articleFranchises(value, [{ ...ip, aliases: ["Other"] }]).length, 0);
   assert.equal(gameFranchises(game, [ip]).length, 1); assert.equal(gameFranchises(game, []).length, 0);
   assert.equal(articleFranchises({ ...value, ipIds: [] }, [ip]).length, 0, "archived tags are authoritative, no stale title fallback");

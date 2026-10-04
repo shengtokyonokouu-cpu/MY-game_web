@@ -35,7 +35,7 @@ export function IPTags({ items, follow = false }: { items: Franchise[]; follow?:
 }
 export function PopularIPs({ value, onChange }: { value: string; onChange: (id: string) => void }) {
   const { franchises, franchiseById, registryState, refreshRegistry } = useIP(); const [sort, setSort] = useState("news");
-  const popular = sortedIPs(franchises, sort).slice(0, 16);
+  const popular = sortedIPs(franchises.filter(ip=>ip.channelKind!=="media-franchise"||!franchises.some(other=>other.id!==ip.id&&other.channelKind==="game-series"&&other.en.toLowerCase()===ip.en.toLowerCase())), sort).slice(0, 16);
   return <><div className="ip-quick"><span>热门 IP<small>动态频道</small></span><IPSort value={sort} change={setSort}/><div className="ip-scroll" role="group" aria-label="IP 快捷筛选"><button aria-pressed={value === "all"} className={value === "all" ? "active" : ""} onClick={() => onChange("all")}>全部系列</button>{popular.map((ip) => <button key={ip.id} aria-pressed={value === ip.id} className={value === ip.id ? "active" : ""} onClick={() => onChange(ip.id)}>{ip.name}<IPBadge ip={ip}/></button>)}</div>{value !== "all" && franchiseById(value) && <IPLink ip={franchiseById(value)!}/>}</div>{registryState === "error" && <div className="notice" role="status">动态词库暂不可用，正在展示上次可用分类。<button onClick={() => void refreshRegistry()}>重试</button></div>}</>;
 }
 export function IPSearch({ query, onChange, catalog, inputRef }: { query: string; onChange: (value: string) => void; catalog: CatalogGame[]; inputRef: RefObject<HTMLInputElement | null> }) {
@@ -52,7 +52,7 @@ export function IPFacets({ games, query, value, onChange }: { games: CatalogGame
   const { gameFranchises, franchises } = useIP();
   const counts = new Map<string, number>(); games.forEach((game) => gameFranchises(game).forEach((ip) => counts.set(ip.id, (counts.get(ip.id) || 0) + 1)));
   const involved = franchises.filter((ip) => counts.has(ip.id));
-  return <aside className="ip-facets" aria-label="搜索结果 IP 筛选"><h2>关联系列</h2><p>在本次搜索结果中收窄范围</p><button className={value === "all" ? "active" : ""} onClick={() => onChange("all")}>全部结果 <span>{games.length}</span></button>{involved.map((ip) => <button key={ip.id} className={value === ip.id ? "active" : ""} aria-pressed={value === ip.id} onClick={() => onChange(ip.id)}>{ip.name}<span>{counts.get(ip.id)}</span></button>)}{!involved.length && <p>“{query}” 的结果暂未识别到已收录 IP。</p>}<p className="ip-disclaimer">仅依据名称与别名归类；不表示作品已被官方确认。</p></aside>;
+  return <aside className="ip-facets" aria-label="搜索结果 IP 筛选"><h2>关联系列</h2><p>在本次搜索结果中收窄范围</p><button className={value === "all" ? "active" : ""} onClick={() => onChange("all")}>全部结果 <span>{games.length}</span></button>{involved.map((ip) => <button key={ip.id} className={value === ip.id ? "active" : ""} aria-pressed={value === ip.id} onClick={() => onChange(ip.id)}>{ip.name}<span>{counts.get(ip.id)}</span></button>)}{!involved.length && <p>“{query}” 的结果暂未识别到已收录 IP。</p>}<p className="ip-disclaimer">依据明确的作品归属关系；共同词语仅用于搜索联想。</p></aside>;
 }
 export function IPNewsCard({ item }: { item: NewsArticle }) {
   const { articleFranchises } = useIP();
@@ -97,9 +97,13 @@ export function IPHub({ id, catalog, onOpen, onBack }: { id: string; catalog: Ca
 export function FollowingFeed({ query }: { query: string }) {
   const store = useIP(); const { articleFranchises, matchesNewsQuery, franchiseById, franchises } = store; const [ip, setIP] = useState("all"); const [platform, setPlatform] = useState("all");
   const items = (store.news.feed?.items || []).filter((item) => articleFranchises(item).some((match) => store.following.includes(match.id) && (ip === "all" || ip === match.id)) && (platform === "all" || articlePlatforms(item).includes(platform)) && matchesNewsQuery(item, query));
-  if (!store.user) return <EmptyState title="为自己定制一份游戏动态" description="登录后关注喜欢的 IP，只看与你有关的消息；关注列表和通知已读状态可跨设备同步。" action={<a className="button primary" href="/api/auth/login">使用 GitHub 登录</a>}/>;
-  if (store.loading) return <EmptyState title="正在读取云端关注…" description="正在加载你的 IP 订阅。"/>;
+  if (store.loading) return <EmptyState title="正在读取关注…" description="正在加载你的 IP 订阅。"/>;
   return <><div className="following-intro"><h2>我的关注 <small>{store.following.length} 个系列</small></h2><p>只展示所关注系列的抓取资讯。来源约每 3 小时抓取；页面每 5 分钟检查已发布快照。</p></div>{store.following.length ? <><div className="ip-followed-list">{store.following.map((id) => { const value = franchiseById(id); return value ? <span className="ip-tag-group" key={id}><IPLink ip={value}/><FollowIP ip={value} compact/></span> : null; })}</div><div className="news-toolbar"><label>系列 <select value={ip} onChange={(e) => setIP(e.target.value)}><option value="all">全部关注</option>{store.following.map((id) => <option key={id} value={id}>{franchiseById(id)?.name}</option>)}</select></label><label>平台 <select value={platform} onChange={(e) => setPlatform(e.target.value)}><option value="all">全部平台</option>{["Switch", "Switch 2", "PS5", "PC", "Xbox"].map((value) => <option key={value}>{value}</option>)}</select></label><span>{items.length} 条匹配</span></div><IPNewsStatus/><IPNewsFeed key={`${query}-${ip}-${platform}-${store.following.join(",")}`} items={items} loading={store.news.state === "loading"}/></> : <><p className="ip-empty-inline">还没有关注系列。从下面选几个喜欢的世界开始。</p><div className="ip-followed-list">{sortedIPs(franchises, "news").slice(0,24).map((ip) => <span className="ip-tag-group" key={ip.id}><IPLink ip={ip}/><FollowIP ip={ip} compact/></span>)}</div></>}</>;
+}
+export function FollowStorageNotice() {
+  const store=useIP();
+  if(store.user)return store.localCount>0?<div className="notice">本机还有 {store.localCount} 个关注未合并。<button disabled={store.busy||store.loading} onClick={()=>void store.importLocal()}>合并到当前账号</button><small>只添加关注，不覆盖云端；本机副本保留。</small></div>:null;
+  return <div className="local-follow-notice"><span>本机关注可直接使用 · 仅保存在此浏览器，清除浏览器数据后会丢失。</span><button className="text-button" onClick={()=>store.setLoginPrompt(true)}>登录以跨设备同步</button></div>;
 }
 export function NotificationCenter() {
   const store = useIP(); const { franchiseById } = store;

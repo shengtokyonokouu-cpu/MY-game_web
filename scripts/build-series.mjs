@@ -14,7 +14,7 @@ const source = id => 'https://www.wikidata.org/wiki/' + id;
 const factsByGame = new Map(); const namesByGame = new Map();
 for (const f of facts) { const id = qid(f.g); const row = factsByGame.get(id) || {}; const prop = f.p.split('/').at(-1); (row[prop] ||= new Set()).add(f.v); factsByGame.set(id, row); }
 for (const n of names) { const id = qid(n.g); const row = namesByGame.get(id) || []; row.push(n); namesByGame.set(id, row); }
-const precisions = await sparql('SELECT DISTINCT ?g ?date ?precision WHERE { ?g wdt:P31/wdt:P279* wd:Q7889; wdt:P179 ?s; p:P577 ?statement. ?statement psv:P577 ?time. ?time wikibase:timeValue ?date; wikibase:timePrecision ?precision. }');
+const precisions = await sparql('SELECT DISTINCT ?g ?date ?precision WHERE { ?g wdt:P31/wdt:P279* wd:Q7889; wdt:P179 ?s; p:P577 ?statement. ?statement psv:P577 ?time; wikibase:rank ?rank. FILTER(?rank != wikibase:DeprecatedRank) ?time wikibase:timeValue ?date; wikibase:timePrecision ?precision. }');
 const dates = new Map(); for (const r of precisions) { const list = dates.get(qid(r.g)) || []; list.push({ date: r.date.slice(0, 10), precision: Number(r.precision) }); dates.set(qid(r.g), list); }
 // Entity identity, not substring guesses: P179/P361/P527 establish ancestry.
 const graph = new Map(Object.entries(discovery.entities));

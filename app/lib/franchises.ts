@@ -2,7 +2,7 @@ import type { CatalogGame } from "./catalog.ts";
 import { identityNames, searchTokensMatch } from "./game-names.ts";
 import type { NewsArticle } from "./news.ts";
 
-export type Franchise = { id: string; name: string; ja: string; en: string; description: string; aliases: string[]; sourceUrl: string; color: string; entityId?: string; version?: number; promotedAt?: number; updatedAt?: number; newsCount?: number; followerCount?: number; recentCount?: number; previousCount?: number; rising?: boolean; discovered?: boolean; evidence?: unknown[]; gameCount?: number; originalCount?: number; parentIds?: string[]; childIds?: string[]; firstYear?: number; lastYear?: number; platforms?: string[]; coverage?: string; searchAliases?: string[]; latestNewsAt?: string };
+export type Franchise = { id: string; name: string; ja: string; en: string; description: string; aliases: string[]; sourceUrl: string; color: string; channelKind?: "game-series" | "media-franchise"; entityId?: string; version?: number; promotedAt?: number; updatedAt?: number; newsCount?: number; followerCount?: number; recentCount?: number; previousCount?: number; rising?: boolean; discovered?: boolean; evidence?: unknown[]; gameCount?: number; originalCount?: number; parentIds?: string[]; childIds?: string[]; firstYear?: number; lastYear?: number; platforms?: string[]; coverage?: string; searchAliases?: string[]; latestNewsAt?: string };
 // Editorial taxonomy, not game identity. A mention may associate several IPs;
 // it never merges games, certifies a release, or invents a localized title.
 export const franchises: Franchise[] = [
@@ -28,7 +28,7 @@ export function mentionsAlias(text: string, alias: string) {
 type AliasNode = { children: Map<string, AliasNode>; matches: { index: number; latin: boolean }[] };
 // Ordinary words are not evidence of franchise membership. Search suggestions
 // still accept these labels, but automatic tagging requires a specific name.
-const ambiguousAliases = new Set(["new","lost","control","trails","shift","air","love","black","white","dark","one","it","the","project","world","evolution","kingdom","mana","simple","tales","atelier","不可思议","不可思議"]);
+const ambiguousAliases = new Set(["new","lost","control","trails","shift","air","love","black","white","dark","one","it","the","project","world","evolution","kingdom","mana","simple","tales","atelier","blood","thief","俠盜","侠盗","不可思议","不可思議"]);
 const tries = new WeakMap<Franchise[], AliasNode>();
 export function matchFranchises(text: string, registry: Franchise[] = franchises) {
   let root = tries.get(registry);
@@ -59,7 +59,7 @@ export function matchFranchises(text: string, registry: Franchise[] = franchises
 // refreshed registry cannot reuse matches from an older dictionary version.
 const indexes = new WeakMap<Franchise[], { games: WeakMap<CatalogGame, Franchise[]>; articles: WeakMap<NewsArticle, Franchise[]> }>();
 function index(registry: Franchise[]) { let value = indexes.get(registry); if (!value) { value = { games: new WeakMap(), articles: new WeakMap() }; indexes.set(registry, value); } return value; }
-export function gameFranchises(game: CatalogGame, registry: Franchise[] = franchises) { const cache = index(registry).games; let matches = cache.get(game); if (!matches) { matches = game.ipIds?.length ? registry.filter((ip) => game.ipIds!.includes(ip.id)) : matchFranchises(identityNames(game).join("\n"), registry); cache.set(game, matches); } return matches; }
+export function gameFranchises(game: CatalogGame, registry: Franchise[] = franchises) { const cache = index(registry).games; let matches = cache.get(game); if (!matches) { matches = game.ipEvidence ? registry.filter((ip) => game.ipIds?.includes(ip.id)) : []; cache.set(game, matches); } return matches; }
 export function articleFranchises(article: NewsArticle, registry: Franchise[] = franchises) { const cache = index(registry).articles; let matches = cache.get(article); if (!matches) { matches = article.ipIds ? registry.filter((ip) => article.ipIds!.includes(ip.id)) : matchFranchises(article.title + "\n" + article.excerpt, registry); cache.set(article, matches); } return matches; }
 const emptyGames: CatalogGame[] = [];
 const suggestionIndexes = new WeakMap<Franchise[], WeakMap<CatalogGame[], Map<string, Franchise[]>>>();
