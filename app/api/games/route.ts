@@ -20,6 +20,6 @@ export async function GET(request: Request) {
       }
       if (!game || !canRecordGame(game)) return Response.json({ error: "未能核验这个游戏链接，请返回搜索重试。" }, { status: 404 });
       return Response.json({ game:verifiedWorkFacts(game) });
-    } catch { return Response.json({ error: "游戏来源暂时无法连接，链接已保留，请重试。" }, { status: 503 }); }
+    } catch (error) { console.warn("Public game lookup failed:", error instanceof Error ? error.message : "snapshot unavailable"); return Response.json({ error: "游戏来源暂时无法连接，链接已保留，请重试。" }, { status: 503 }); }
   });
 }
