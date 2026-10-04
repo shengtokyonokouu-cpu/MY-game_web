@@ -1,0 +1,3 @@
+import { readPublicData } from "../../lib/public-data-server";
+import type { CharacterProfile } from "../../lib/series-types";
+export async function GET(request:Request){const id=new URL(request.url).searchParams.get("id")||"";if(!/^(Q\d+|[a-z0-9-]{1,100})$/.test(id))return Response.json({error:"作品标识不正确"},{status:400});try{const data=await readPublicData<{characters:Record<string,CharacterProfile>;games:Record<string,string[]>}>("cast.json");const ids=data.games[id]||[];return Response.json({items:ids.map(key=>data.characters[key]).filter(Boolean),coverage:ids.length?"来源关联，未保证角色名单完整":"暂无可核验的作品—角色关联"},{headers:{"Cache-Control":"public, max-age=3600"}});}catch{return Response.json({error:"角色资料暂不可用"},{status:503});}}

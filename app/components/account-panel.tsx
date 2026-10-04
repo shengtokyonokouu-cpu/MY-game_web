@@ -1,0 +1,17 @@
+"use client";
+/* OAuth must begin with a full navigation, without router prefetch. */
+/* eslint-disable @next/next/no-html-link-for-pages */
+import type { usePersonalLibrary } from "../lib/use-personal-library";
+import { libraryLabels, scoreAxes } from "../lib/catalog";
+import { Icon } from "./ui";
+export function AccountPanel({ cloud }: { cloud: ReturnType<typeof usePersonalLibrary> }) {
+  const labels = { loading: "检查登录状态…", guest: "未登录 · 本机模式", syncing: "正在同步…", synced: "已同步到云端", pending: "有待同步的修改", error: "同步需要处理", conflict: "需要处理版本冲突" };
+  return <section className="settings-panel account-panel"><div className="section-heading"><h2>账号与云同步</h2><span className={`sync-badge ${cloud.syncState}`} role="status">{labels[cloud.syncState]}</span></div>{cloud.session.user ? <><div className="account-identity"><span className="account-avatar">{cloud.session.user.name.slice(0, 1)}</span><div><strong>{cloud.session.user.name}</strong><p>@{cloud.session.user.login} · GitHub 账号</p></div><button className="button" onClick={() => void cloud.logout()} disabled={cloud.syncState === "syncing"}>退出登录</button></div><p>收藏、游玩状态、评分和笔记在设备间同步。页面使用期间每 30 秒检查远端修改，本机编辑会自动上传。</p><div className="backup-actions"><button className="button primary" onClick={() => void cloud.sync()} disabled={cloud.syncState === "syncing" || !!cloud.conflicts.length || cloud.cacheBlocked}><Icon name="refresh"/>立即同步</button>{cloud.guestCount > 0 && <button className="button" onClick={cloud.importGuest} disabled={cloud.cacheBlocked}>合并本机的 {cloud.guestCount} 条记录</button>}</div><p className="muted">本机合并不会覆盖已有云端记录。退出登录会切回独立的本机游戏架，不会把账号记录留给其他账号。</p>{cloud.lastSynced && <p className="muted">最近同步：{new Date(cloud.lastSynced).toLocaleString("zh-CN")}</p>}</> : <><p>使用同一个 GitHub 账号，在 PC 和手机间同步游戏架。仅获取公开身份，不申请仓库访问权限。</p>{cloud.session.available ? <a className="button primary github-login" href="/api/auth/login">使用 GitHub 登录<Icon name="external"/></a> : <div className="notice">{cloud.ready ? "GitHub 登录服务尚未就绪，请稍后刷新页面。" : "正在检查账号服务…"}</div>}<p className="muted">未登录时仍可本机使用。首次登录后，可自行选择合并本机记录。</p></>}
+    {cloud.syncError && <div className="notice error" role="alert">{cloud.syncError}</div>}
+    {cloud.conflicts.length > 0 && <div className="sync-conflicts"><h3>同一游戏在多个设备上发生了修改</h3><p>选择要保留的版本后继续同步；刷新页面会保留未处理的冲突，删除也会作为一种修改处理。</p>{cloud.conflicts.map((conflict) => <article key={conflict.id}><h3>{conflict.local?.game.title || conflict.remote?.game.title || conflict.id}</h3><div className="conflict-versions">{(["local", "remote"] as const).map((choice) => <div key={choice}><strong>{choice === "local" ? "此设备" : "云端"}</strong><ConflictVersion entry={conflict[choice]}/><button className="button" onClick={() => cloud.resolveConflict(conflict.id, choice)}>保留{choice === "local" ? "此设备" : "云端"}版本</button></div>)}</div></article>)}</div>}
+  </section>;
+}
+function ConflictVersion({ entry }: { entry: import("../lib/catalog").PersonalEntry | null }) {
+  if (!entry) return <p>已移除这款游戏</p>;
+  return <><p>{libraryLabels[entry.status]} · {new Date(entry.updatedAt).toLocaleString("zh-CN")}</p><dl className="conflict-scores">{scoreAxes.map(({ key, label }) => <div key={key}><dt>{label}</dt><dd>{entry.scores[key] ?? "未评分"}</dd></div>)}</dl><details><summary>笔记{entry.notes ? `（${entry.notes.length} 字）` : "：无"}</summary><p className="conflict-notes">{entry.notes || "无笔记"}</p></details></>;
+}
